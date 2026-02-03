@@ -1,0 +1,51 @@
+wakee_reloaded [```bash tree -a -L 3 --dirsfirst```]
+├── 00_wakee
+│   ├── model_legacy
+│   │   ├── daisee_model.onnx
+│   │   └── pytorch_model.bin
+│   ├── app.py
+│   ├── cnn.py
+│   ├── Dockerfile
+│   ├── llm.py
+│   ├── README.md
+│   └── requirements.txt
+├── 01_API
+│   ├── app.py
+│   ├── Dockerfile
+│   ├── .env.example
+│   ├── README.md  <--------------------------- #vide
+│   └── requirements.txt
+├── 02_app_sourcing
+│   ├── .streamlit
+│   │   └── config.toml  <--------------------- #vide
+│   ├── app.py  <------------------------------ #vide
+│   ├── Dockerfile  <-------------------------- #vide
+│   ├── README.md  <--------------------------- #vide
+│   └── requirements.txt  <-------------------- #vide
+├── 03_Airflow
+│   ├── dags
+│   │   ├── dag_drifting.py  <----------------- #vide
+│   │   ├── dag_orchestre.py  <---------------- #vide
+│   │   └── dag_retrain.py  <------------------ #vide
+│   ├── logs
+│   ├── dockercompose.yaml  <------------------ #vide
+│   ├── Dockerfile  <-------------------------- #vide
+│   └── requirements.txt  <-------------------- #vide
+├── 04_mlflow
+│   ├── Dockerfile  <-------------------------- #vide
+│   ├── README.md  <--------------------------- #vide
+│   ├── requirements.txt  <-------------------- #vide
+│   └── start.sh  <---------------------------- #vide
+├── 05_scripts
+│   ├── first_load_hfmodel.py
+│   ├── init_db.py
+│   └── onnx_to_pytorch.py
+├── .github
+│   └── workflows
+│       └── deploy-api.yml
+├── architecture.png
+├── .env
+├── env_requirements.txt
+├── .gitignore
+├── structure.txt
+└── structure_v2.txt

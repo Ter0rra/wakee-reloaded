@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+venv_wakee/
+wr_env/
+*.egg-info/
+dist/
+build/
+
+# Anaconda
+.conda/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment variables
+.env
+*.env
+!.env.example
+
+# Data & Models (locaux)
+*.onnx
+*.pth
+*.bin
+*.h5
+!model_legacy/daisee_model.onnx
+!model_legacy/pytorch_model.bin
+
+# Logs
+*.log
+logs/
+03_Airflow/logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp
+/tmp/
+*.tmp
+
+# Secrets
+secrets.yaml
+credentials.json

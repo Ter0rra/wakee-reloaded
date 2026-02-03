@@ -1,0 +1,41 @@
+wakee_reloaded
+├── 00_wakee
+│   ├── app.py
+│   ├── cnn.py
+│   ├── Dockerfile
+│   ├── llm.py
+│   ├── model_legacy
+│   │   └── daisee_model.onnx
+│   ├── README.md
+│   └── requirements.txt
+├── 01_API
+│   ├── app.py
+│   ├── Dockerfile
+│   ├── README.md
+│   └── requirements.txt
+├── 02_app_sourcing
+│   ├── app.py
+│   ├── Dockerfile
+│   ├── README.md
+│   └── requirements.txt
+├── 03_Airflow
+│   ├── dags
+│   │   ├── dag_drifting.py
+│   │   ├── dag_orchestre.py
+│   │   └── dag_retrain.py
+│   ├── dockercompose.yaml
+│   ├── Dockerfile
+│   ├── logs
+│   └── requirements.txt
+├── 04_mlflow
+│   ├── Dockerfile
+│   ├── README.md
+│   ├── requirements.txt
+│   └── start.sh
+├── 05_scripts
+│   ├── first_load_hfmodel.py
+│   └── init_db.py
+├── architecture.png
+├── .env
+├── .gitignore
+└── structure.txt

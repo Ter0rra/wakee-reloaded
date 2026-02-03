@@ -1,0 +1,176 @@
+name: 🚀 Deploy API to HuggingFace Space
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '01_API/**'
+      - '.github/workflows/deploy-api.yml'
+  workflow_dispatch:  # Permet déclenchement manuel
+
+jobs:
+  deploy-api:
+    runs-on: ubuntu-latest
+    
+    steps:
+      # ================================================================
+      # 1. CHECKOUT CODE
+      # ================================================================
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Clone complet pour l'historique
+      
+      # ================================================================
+      # 2. SETUP PYTHON 3.11
+      # ================================================================
+      - name: 🐍 Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      # ================================================================
+      # 3. INSTALL DEPENDENCIES
+      # ================================================================
+      - name: 📦 Install dependencies
+        working-directory: ./01_API
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest httpx  # Pour les tests
+      
+      # ================================================================
+      # 4. RUN TESTS (optionnel mais recommandé)
+      # ================================================================
+      - name: 🧪 Run API tests
+        working-directory: ./01_API
+        run: |
+          # Test que l'app se charge sans erreur
+          python -c "from app import app; print('✅ App loads successfully')"
+          
+          # Si tu as des tests pytest
+          # pytest tests/ -v
+      
+      # ================================================================
+      # 5. SETUP HUGGINGFACE CLI
+      # ================================================================
+      - name: 🤗 Setup HuggingFace CLI
+        run: |
+          pip install huggingface-hub
+          huggingface-cli login --token ${{ secrets.HF_TOKEN }}
+      
+      # ================================================================
+      # 6. CREATE OR UPDATE HF SPACE
+      # ================================================================
+      - name: 🏗️ Create/Update HuggingFace Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          SPACE_NAME: Terorra/wakee-api
+        run: |
+          # Check si le Space existe
+          if huggingface-cli repo-info $SPACE_NAME --repo-type space > /dev/null 2>&1; then
+            echo "✅ Space existe déjà : $SPACE_NAME"
+          else
+            echo "📦 Création du Space : $SPACE_NAME"
+            huggingface-cli repo create $SPACE_NAME --type space --space_sdk docker
+          fi
+      
+      # ================================================================
+      # 7. CONFIGURE SPACE SECRETS
+      # ================================================================
+      - name: 🔐 Configure Space secrets
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          SPACE_NAME: Terorra/wakee-api
+        run: |
+          # Ajoute les secrets au Space via API HuggingFace
+          python << 'PYTHON_SCRIPT'
+          from huggingface_hub import HfApi
+          import os
+          
+          api = HfApi(token=os.environ['HF_TOKEN'])
+          space_name = os.environ['SPACE_NAME']
+          
+          # Liste des secrets à ajouter
+          secrets = {
+              'NEON_DATABASE_URL': '${{ secrets.NEON_DATABASE_URL }}',
+              'R2_ACCOUNT_ID': '${{ secrets.R2_ACCOUNT_ID }}',
+              'R2_ACCESS_KEY_ID': '${{ secrets.R2_ACCESS_KEY_ID }}',
+              'R2_SECRET_ACCESS_KEY': '${{ secrets.R2_SECRET_ACCESS_KEY }}',
+              'R2_BUCKET_NAME': '${{ secrets.R2_BUCKET_NAME }}'
+          }
+          
+          for key, value in secrets.items():
+              if value and value != '':  # Ne pas ajouter si vide
+                  try:
+                      api.add_space_secret(
+                          repo_id=space_name,
+                          key=key,
+                          value=value
+                      )
+                      print(f"✅ Secret ajouté : {key}")
+                  except Exception as e:
+                      print(f"⚠️  Erreur secret {key}: {e}")
+          PYTHON_SCRIPT
+      
+      # ================================================================
+      # 8. PUSH CODE TO HF SPACE
+      # ================================================================
+      - name: 🚀 Deploy to HuggingFace Space
+        working-directory: ./01_API
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          SPACE_NAME: Terorra/wakee-api
+        run: |
+          # Clone le Space
+          git clone https://huggingface.co/spaces/$SPACE_NAME space_repo
+          
+          # Copie les fichiers nécessaires
+          cp app.py space_repo/
+          cp requirements.txt space_repo/
+          cp Dockerfile space_repo/
+          
+          # Si tu as un README spécifique pour le Space
+          if [ -f README.md ]; then
+            cp README.md space_repo/
+          fi
+          
+          # Commit et push
+          cd space_repo
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "🚀 Deploy from GitHub Actions - $(date '+%Y-%m-%d %H:%M:%S')" || echo "No changes to commit"
+          git push https://Terorra:$HF_TOKEN@huggingface.co/spaces/$SPACE_NAME main
+      
+      # ================================================================
+      # 9. WAIT FOR DEPLOYMENT & TEST
+      # ================================================================
+      - name: ⏳ Wait for Space to be ready
+        run: |
+          echo "⏳ Attente du démarrage du Space (60s)..."
+          sleep 60
+      
+      - name: 🧪 Test deployed API
+        run: |
+          # Test health endpoint
+          curl -f https://terorra-wakee-api.hf.space/health || echo "⚠️ Health check failed"
+          
+          # Test root endpoint
+          curl -f https://terorra-wakee-api.hf.space/ || echo "⚠️ Root endpoint failed"
+      
+      # ================================================================
+      # 10. NOTIFICATION (optionnel)
+      # ================================================================
+      - name: 📢 Deployment summary
+        if: always()
+        run: |
+          echo "================================================"
+          echo "🎉 DÉPLOIEMENT TERMINÉ"
+          echo "================================================"
+          echo "Space URL: https://huggingface.co/spaces/Terorra/wakee-api"
+          echo "API URL: https://terorra-wakee-api.hf.space"
+          echo "Status: ${{ job.status }}"
+          echo "================================================"
