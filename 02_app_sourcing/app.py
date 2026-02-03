@@ -241,36 +241,39 @@ if img_file is not None:
                     )
                     
                     if submitted:
-                        
+    
                         # ================================================
                         # ÉTAPE 4 : ENVOI À L'API
                         # ================================================
                         
                         with st.spinner("📤 Envoi en cours..."):
                             try:
-                                # Encode image en base64
-                                image_base64 = base64.b64encode(img_file.getvalue()).decode('utf-8')
-                                
-                                # Prépare les données
-                                annotation_data = {
-                                    "image_base64": image_base64,
-                                    "predicted_boredom": predictions['boredom'],
-                                    "predicted_confusion": predictions['confusion'],
-                                    "predicted_engagement": predictions['engagement'],
-                                    "predicted_frustration": predictions['frustration'],
-                                    "user_boredom": user_boredom,
-                                    "user_confusion": user_confusion,
-                                    "user_engagement": user_engagement,
-                                    "user_frustration": user_frustration
+                                # ✅ CHANGEMENT : Plus de base64, envoi direct du fichier
+                                files = {
+                                    'file': ('image.jpg', img_file.getvalue(), 'image/jpeg')
                                 }
                                 
-                                # Appel API /insert
+                                # ✅ CHANGEMENT : Les données dans 'data' au lieu de 'json'
+                                data = {
+                                    'predicted_boredom': predictions['boredom'],
+                                    'predicted_confusion': predictions['confusion'],
+                                    'predicted_engagement': predictions['engagement'],
+                                    'predicted_frustration': predictions['frustration'],
+                                    'user_boredom': user_boredom,
+                                    'user_confusion': user_confusion,
+                                    'user_engagement': user_engagement,
+                                    'user_frustration': user_frustration
+                                }
+                                
+                                # ✅ CHANGEMENT : files= et data= au lieu de json=
                                 insert_response = requests.post(
                                     f"{API_URL}/insert",
-                                    json=annotation_data,
+                                    files=files,
+                                    data=data,
                                     timeout=60
                                 )
                                 
+                                # Le reste est IDENTIQUE à ton code
                                 if insert_response.status_code == 200:
                                     result = insert_response.json()
                                     

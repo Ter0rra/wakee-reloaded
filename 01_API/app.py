@@ -96,16 +96,16 @@ class PredictionResponse(BaseModel):
     frustration: float = Field(..., ge=0, le=3)
     timestamp: str
 
-class AnnotationInsert(BaseModel):
-    image_base64: str
-    predicted_boredom: float = Field(..., ge=0, le=3)
-    predicted_confusion: float = Field(..., ge=0, le=3)
-    predicted_engagement: float = Field(..., ge=0, le=3)
-    predicted_frustration: float = Field(..., ge=0, le=3)
-    user_boredom: float = Field(..., ge=0, le=3)
-    user_confusion: float = Field(..., ge=0, le=3)
-    user_engagement: float = Field(..., ge=0, le=3)
-    user_frustration: float = Field(..., ge=0, le=3)
+# class AnnotationInsert(BaseModel):
+#     image_base64: str
+#     predicted_boredom: float = Field(..., ge=0, le=3)
+#     predicted_confusion: float = Field(..., ge=0, le=3)
+#     predicted_engagement: float = Field(..., ge=0, le=3)
+#     predicted_frustration: float = Field(..., ge=0, le=3)
+#     user_boredom: float = Field(..., ge=0, le=3)
+#     user_confusion: float = Field(..., ge=0, le=3)
+#     user_engagement: float = Field(..., ge=0, le=3)
+#     user_frustration: float = Field(..., ge=0, le=3)
 
 class InsertResponse(BaseModel):
     status: str
@@ -248,38 +248,6 @@ async def health_check():
 
 @app.post("/predict", response_model=PredictionResponse)
 async def predict_emotion(file: UploadFile = File(...)):
-    if not onnx_session:
-        raise HTTPException(status_code=503, detail="Model not loaded")
-    
-    if not file.content_type.startswith('image/'):
-        raise HTTPException(status_code=400, detail="File must be an image")
-    
-    try:
-        # Load image
-        image_bytes = await file.read()
-        image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-        
-        # Preprocess (SANS PyTorch !)
-        input_tensor = preprocess_image(image)
-        
-        # Inference ONNX
-        outputs = onnx_session.run(['output'], {'input': input_tensor})
-        scores_array = outputs[0][0]
-        
-        return PredictionResponse(
-            boredom=round(float(scores_array[0]), 2),
-            confusion=round(float(scores_array[1]), 2),
-            engagement=round(float(scores_array[2]), 2),
-            frustration=round(float(scores_array[3]), 2),
-            timestamp=datetime.now().isoformat()
-        )
-    
-    except Exception as e:
-        print(f"❌ Erreur prédiction : {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/predict", response_model=PredictionResponse)
-async def predict_emotion(file: UploadFile = File(...)):
     """
     Prédiction des 4 émotions depuis une image
     
@@ -327,15 +295,21 @@ async def predict_emotion(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/insert", response_model=InsertResponse)
-async def insert_annotation(annotation: AnnotationInsert):
+async def insert_annotation(
+    file: UploadFile = File(...),
+    predicted_boredom: float = Form(...),
+    predicted_confusion: float = Form(...),
+    predicted_engagement: float = Form(...),
+    predicted_frustration: float = Form(...),
+    user_boredom: float = Form(...),
+    user_confusion: float = Form(...),
+    user_engagement: float = Form(...),
+    user_frustration: float = Form(...)
+):
     """
     Insert annotation utilisateur
     
-    Ce endpoint fait 2 choses :
-    1. Upload image vers Cloudflare R2
-    2. Insert labels (predicted + user) dans NeonDB
-    
-    ✅ Appelé uniquement quand l'utilisateur clique "Valider"
+    NOUVEAU : Reçoit directement l'image (pas de base64)
     """
     
     # Vérifications
@@ -345,19 +319,20 @@ async def insert_annotation(annotation: AnnotationInsert):
     if not s3_client:
         raise HTTPException(status_code=503, detail="Storage not available")
     
+    if not file.content_type.startswith('image/'):
+        raise HTTPException(status_code=400, detail="File must be an image")
+    
     try:
-        # 1. Decode image base64
-        try:
-            image_bytes = base64.b64decode(annotation.image_base64)
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Invalid base64 image: {e}")
+        # 1. Lire l'image
+        image_bytes = await file.read()
         
-        # 2. Generate unique filename
+        # 2. Générer nom unique
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        img_name = f"{timestamp}_{hash(annotation.image_base64) % 10000:04d}.jpg"
+        random_suffix = hash(image_bytes) % 10000
+        img_name = f"{timestamp}_{random_suffix:04d}.jpg"
         s3_key = f"collected/{img_name}"
         
-        # 3. Upload image to Cloudflare R2
+        # 3. Upload vers Cloudflare R2
         print(f"📤 Upload vers R2 : {s3_key}")
         try:
             s3_client.put_object(
@@ -371,7 +346,7 @@ async def insert_annotation(annotation: AnnotationInsert):
             print(f"❌ Erreur upload R2 : {e}")
             raise HTTPException(status_code=500, detail=f"R2 upload failed: {e}")
         
-        # 4. Insert labels in NeonDB
+        # 4. Insert dans NeonDB avec img_name
         query = text("""
             INSERT INTO emotion_labels 
             (img_name, s3_path, 
@@ -389,30 +364,25 @@ async def insert_annotation(annotation: AnnotationInsert):
             conn.execute(query, {
                 'img_name': img_name,
                 's3_path': s3_key,
-                'pred_boredom': annotation.predicted_boredom,
-                'pred_confusion': annotation.predicted_confusion,
-                'pred_engagement': annotation.predicted_engagement,
-                'pred_frustration': annotation.predicted_frustration,
-                'user_boredom': annotation.user_boredom,
-                'user_confusion': annotation.user_confusion,
-                'user_engagement': annotation.user_engagement,
-                'user_frustration': annotation.user_frustration,
+                'pred_boredom': predicted_boredom,
+                'pred_confusion': predicted_confusion,
+                'pred_engagement': predicted_engagement,
+                'pred_frustration': predicted_frustration,
+                'user_boredom': user_boredom,
+                'user_confusion': user_confusion,
+                'user_engagement': user_engagement,
+                'user_frustration': user_frustration,
                 'timestamp': datetime.now()
             })
             conn.commit()
         
         print(f"✅ Insert NeonDB réussi : {img_name}")
         
-        # 5. Generate public URL (si tu as activé l'accès public)
-        # public_url = f"https://pub-{R2_ACCOUNT_ID}.r2.dev/{s3_key}"
-        # Ou None si pas d'accès public
-        public_url = None
-        
         return InsertResponse(
             status="success",
-            message="Image uploaded to R2 and labels saved to NeonDB",
-            img_name=img_name,
-            s3_url=public_url
+            message="Image uploaded and labels saved",
+            img_name=img_name,  # ← RETOURNÉ au frontend
+            s3_url=None
         )
     
     except SQLAlchemyError as e:
