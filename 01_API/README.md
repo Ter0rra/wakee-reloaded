@@ -5,7 +5,7 @@ colorFrom: blue
 colorTo: green
 sdk: docker
 pinned: false
-license: MIT
+license: mit
 ---
 
 # 🧠 Wakee Emotion Detection API
@@ -102,7 +102,7 @@ L'API nécessite les secrets suivants (configurés dans les Settings du Space) :
 
 ## 📄 License
 
-MIT
+mit
 
 ---
 
