@@ -144,10 +144,9 @@ jobs:
           
           git clone https://huggingface.co/spaces/$SPACE_NAME space_repo
           
-          # Copie les fichiers (AJOUT de environment.yml)
+          # Copie les fichiers
           cp app.py space_repo/
-          cp requirements.txt space_repo/
-          cp environment.yml space_repo/       
+          cp requirements.txt space_repo/    
           cp Dockerfile space_repo/
           
           if [ -f README.md ]; then
