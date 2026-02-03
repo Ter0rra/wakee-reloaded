@@ -62,20 +62,35 @@ jobs:
           huggingface-cli login --token ${{ secrets.HF_TOKEN }}
       
       # ================================================================
-      # 6. CREATE OR UPDATE HF SPACE
+      # 6. CREATE OR UPDATE HF SPACE (CORRIGÉ)
       # ================================================================
       - name: 🏗️ Create/Update HuggingFace Space
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-          SPACE_NAME: wakee-api
         run: |
-          # Check si le Space existe
-          if huggingface-cli repo-info $SPACE_NAME --repo-type space > /dev/null 2>&1; then
-            echo "✅ Space existe déjà : $SPACE_NAME"
-          else
-            echo "📦 Création du Space : $SPACE_NAME"
-            huggingface-cli repo create $SPACE_NAME --type space --space_sdk docker
-          fi
+          python << 'PYTHON_SCRIPT'
+          from huggingface_hub import HfApi, create_repo
+          import os
+          
+          api = HfApi(token=os.environ['HF_TOKEN'])
+          space_name = "Terorra/wakee-api"
+          
+          try:
+              # Vérifie si le Space existe
+              api.repo_info(repo_id=space_name, repo_type="space")
+              print(f"✅ Space existe déjà : {space_name}")
+          except Exception:
+              # Crée le Space si inexistant
+              print(f"📦 Création du Space : {space_name}")
+              create_repo(
+                  repo_id=space_name,
+                  repo_type="space",
+                  space_sdk="docker",
+                  exist_ok=True,
+                  token=os.environ['HF_TOKEN']
+              )
+              print(f"✅ Space créé : https://huggingface.co/spaces/{space_name}")
+          PYTHON_SCRIPT
       
       # ================================================================
       # 7. CONFIGURE SPACE SECRETS
