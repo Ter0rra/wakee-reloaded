@@ -67,7 +67,7 @@ jobs:
       - name: 🏗️ Create/Update HuggingFace Space
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-          SPACE_NAME: Terorra/wakee-api
+          SPACE_NAME: wakee-api
         run: |
           # Check si le Space existe
           if huggingface-cli repo-info $SPACE_NAME --repo-type space > /dev/null 2>&1; then
