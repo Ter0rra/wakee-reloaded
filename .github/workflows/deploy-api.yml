@@ -139,15 +139,17 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           SPACE_NAME: Terorra/wakee-api
         run: |
-          # Clone le Space
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
           git clone https://huggingface.co/spaces/$SPACE_NAME space_repo
           
-          # Copie les fichiers nécessaires
+          # Copie les fichiers (AJOUT de environment.yml)
           cp app.py space_repo/
           cp requirements.txt space_repo/
+          cp environment.yml space_repo/       
           cp Dockerfile space_repo/
           
-          # Si tu as un README spécifique pour le Space
           if [ -f README.md ]; then
             cp README.md space_repo/
           fi
