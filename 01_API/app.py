@@ -3,7 +3,7 @@ Wakee API - Production
 ONNX Runtime UNIQUEMENT (pas de PyTorch)
 """
 
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import List, Optional
