@@ -5,7 +5,7 @@ colorFrom: blue
 colorTo: green
 sdk: docker
 pinned: false
-license: apache-2.0
+license: MIT
 ---
 
 # 🧠 Wakee Emotion Detection API
