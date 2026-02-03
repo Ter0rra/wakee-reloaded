@@ -13,7 +13,7 @@ wakee_reloaded [```bash tree -a -L 3 --dirsfirst```]
 │   ├── app.py
 │   ├── Dockerfile
 │   ├── .env.example
-│   ├── README.md  <--------------------------- #vide
+│   ├── README.md
 │   └── requirements.txt
 ├── 02_app_sourcing
 │   ├── .streamlit

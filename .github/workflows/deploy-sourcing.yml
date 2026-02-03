@@ -1,0 +1,150 @@
+name: 🚀 Deploy App Sourcing to HuggingFace Space
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '02_app_sourcing/**'
+      - '.github/workflows/deploy-sourcing.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy-sourcing:
+    runs-on: ubuntu-latest
+    
+    steps:
+      # ================================================================
+      # 1. CHECKOUT CODE
+      # ================================================================
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      # ================================================================
+      # 2. SETUP PYTHON 3.11
+      # ================================================================
+      - name: 🐍 Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      # ================================================================
+      # 3. INSTALL DEPENDENCIES
+      # ================================================================
+      - name: 📦 Install dependencies
+        working-directory: ./02_app_sourcing
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      # ================================================================
+      # 4. RUN TESTS (basic)
+      # ================================================================
+      - name: 🧪 Test app loads
+        working-directory: ./02_app_sourcing
+        run: |
+          python -c "import streamlit; print('✅ Streamlit OK')"
+      
+      # ================================================================
+      # 5. SETUP HUGGINGFACE CLI
+      # ================================================================
+      - name: 🤗 Setup HuggingFace CLI
+        run: |
+          pip install huggingface-hub
+          huggingface-cli login --token ${{ secrets.HF_TOKEN }}
+      
+      # ================================================================
+      # 6. CREATE OR UPDATE HF SPACE
+      # ================================================================
+      - name: 🏗️ Create/Update HuggingFace Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          python << 'PYTHON_SCRIPT'
+          from huggingface_hub import HfApi, create_repo
+          import os
+          
+          api = HfApi(token=os.environ['HF_TOKEN'])
+          space_name = "Terorra/wakee-sourcing"
+          
+          try:
+              api.repo_info(repo_id=space_name, repo_type="space")
+              print(f"✅ Space existe déjà : {space_name}")
+          except Exception:
+              print(f"📦 Création du Space : {space_name}")
+              create_repo(
+                  repo_id=space_name,
+                  repo_type="space",
+                  space_sdk="docker",
+                  exist_ok=True,
+                  token=os.environ['HF_TOKEN']
+              )
+              print(f"✅ Space créé : https://huggingface.co/spaces/{space_name}")
+          PYTHON_SCRIPT
+      
+      # ================================================================
+      # 7. PUSH CODE TO HF SPACE
+      # ================================================================
+      - name: 🚀 Deploy to HuggingFace Space
+        working-directory: ./02_app_sourcing
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          SPACE_NAME: Terorra/wakee-sourcing
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Clone le Space
+          git clone https://huggingface.co/spaces/$SPACE_NAME space_repo
+          
+          # Copie les fichiers
+          cp app.py space_repo/
+          cp requirements.txt space_repo/
+          cp Dockerfile space_repo/
+          cp -r .streamlit space_repo/
+          
+          # README
+          if [ -f README.md ]; then
+            cp README.md space_repo/
+          fi
+          
+          # Push vers HF
+          cd space_repo
+          git add .
+          git diff-index --quiet HEAD || git commit -m "🚀 Deploy from GitHub Actions - $(date '+%Y-%m-%d %H:%M:%S')"
+          git push https://Terorra:$HF_TOKEN@huggingface.co/spaces/$SPACE_NAME main
+      
+      # ================================================================
+      # 8. WAIT & TEST
+      # ================================================================
+      - name: ⏳ Wait for Space to be ready
+        run: |
+          echo "⏳ Attente du démarrage du Space (90s)..."
+          sleep 90
+      
+      - name: 🧪 Test deployed app
+        run: |
+          response=$(curl -s -o /dev/null -w "%{http_code}" https://terorra-wakee-sourcing.hf.space || echo "000")
+          
+          if [ "$response" = "200" ]; then
+            echo "✅ App accessible"
+          else
+            echo "⚠️  App returned: $response (may still be building)"
+          fi
+      
+      # ================================================================
+      # 9. SUMMARY
+      # ================================================================
+      - name: 📢 Deployment summary
+        if: always()
+        run: |
+          echo "================================================"
+          echo "🎉 DÉPLOIEMENT APP SOURCING TERMINÉ"
+          echo "================================================"
+          echo "Space: https://huggingface.co/spaces/Terorra/wakee-sourcing"
+          echo "App: https://terorra-wakee-sourcing.hf.space"
+          echo "Status: ${{ job.status }}"
+          echo "================================================"

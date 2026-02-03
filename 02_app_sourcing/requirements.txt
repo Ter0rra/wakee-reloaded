@@ -1,0 +1,10 @@
+# Wakee App Sourcing - Requirements (Python 3.11)
+
+# Streamlit
+streamlit==1.31.0
+
+# HTTP requests
+requests==2.31.0
+
+# Image processing
+pillow==10.2.0
