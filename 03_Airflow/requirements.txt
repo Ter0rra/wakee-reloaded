@@ -2,8 +2,8 @@
 
 # Core ML
 # torch
-# onnxruntime
-# onnx
+onnxruntime
+onnx
 pillow
 numpy
 
@@ -12,7 +12,7 @@ pandas
 # scikit-learn
 
 # MLOps
-# evidently
+evidently
 # mlflow
 
 # Database
