@@ -1,0 +1,38 @@
+# Airflow Requirements - ML/MLOps Stack
+
+# Core ML
+# torch
+# onnxruntime
+# onnx
+pillow
+numpy
+
+# Data Processing
+pandas
+# scikit-learn
+
+# MLOps
+# evidently
+# mlflow
+
+# Database
+sqlalchemy
+psycopg2-binary
+
+# Cloud Storage
+boto3
+
+# HuggingFace
+huggingface-hub
+# transformers
+
+# API Client
+requests
+
+# Testing
+pytest
+pytest-cov
+
+# Utils
+python-dotenv
+pydantic

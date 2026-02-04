@@ -38,6 +38,10 @@ build/
 *.log
 logs/
 03_Airflow/logs/
+03_Airflow/tests/
+03_Airflow/plugins/
+03_Airflow/models/
+03_Airflow/config/
 
 # OS
 .DS_Store
