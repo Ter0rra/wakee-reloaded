@@ -11,7 +11,6 @@ from airflow import DAG
 from airflow.providers.standard.operators.python import PythonOperator
 from airflow.providers.standard.operators.empty import EmptyOperator
 from airflow.sdk import TaskGroup
-# from airflow.utils.dates import days_ago
 
 # ============================
 # import utils
@@ -318,6 +317,7 @@ def run_pytest_suite(**context):
     """Exécute la suite de tests Pytest"""
     print("🔍 Running Pytest suite...")
     ti = context['ti']
+
     try:
         # Tests directory
         tests_dir = '/opt/airflow/tests'
@@ -423,7 +423,7 @@ with DAG(
     start_date=datetime(2024, 1, 1),
     catchup=False,
     tags=['health', 'monitoring', 'tests'],
-) as dag:
+    ) as dag:
 
     start = EmptyOperator(
             task_id='start',
@@ -488,3 +488,4 @@ with DAG(
 
 # Tous les tests en parallèle, puis summary
 start >> [storage_branch, apps_branch] >> task_model_hub >> task_pytest >> task_summary >> end
+# start >> [storage_branch, apps_branch] >> task_model_hub >> task_summary >> end
