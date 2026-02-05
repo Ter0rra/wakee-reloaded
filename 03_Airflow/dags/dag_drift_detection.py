@@ -7,13 +7,16 @@ Schedule : Quotidien (2h du matin)
 from airflow import DAG
 from airflow.providers.standard.operators.python import PythonOperator
 from airflow.providers.standard.operators.empty import EmptyOperator
-from airflow.operators.trigger_dagrun import TriggerDagRunOperator
+from airflow.providers.standard.operators.trigger_dagrun import TriggerDagRunOperator
 from datetime import datetime, timedelta
 import sys
 import os
 
-# Ajoute le chemin utils au PYTHONPATH
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+# ✅ Ajoute le chemin parent (03_Airflow) au PYTHONPATH
+# Permet d'importer depuis utils/
+AIRFLOW_HOME = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if AIRFLOW_HOME not in sys.path:
+    sys.path.insert(0, AIRFLOW_HOME)
 
 from utils.database_helpers import (
     fetch_recent_annotations,
@@ -44,6 +47,16 @@ default_args = {
     'retries': 2,
     'retry_delay': timedelta(minutes=5),
 }
+
+dag = DAG(
+    'drift_detection_daily',
+    default_args=default_args,
+    description='Détection quotidienne du drift du modèle Wakee',
+    schedule='0 2 * * *',  # Tous les jours à 2h
+    start_date=datetime(2024, 1, 1),
+    catchup=False,
+    tags=['drift', 'monitoring', 'mlops'],
+)
 
 # ============================================================================
 # TASK 1 : Fetch Recent Annotations
@@ -171,19 +184,18 @@ def task_save_report(**context):
     drift_detected = ti.xcom_pull(task_ids='calculate_drift', key='drift_detected')
     drift_score = ti.xcom_pull(task_ids='calculate_drift', key='drift_score')
     metrics = ti.xcom_pull(task_ids='calculate_drift', key='metrics')
-    evidently_report = ti.xcom_pull(task_ids='generate_report', key='evidently_report')
     
     print("💾 Saving drift report to database...")
     
-    # Sauvegarde dans NeonDB
+    # Sauvegarde dans NeonDB (compatible avec schéma existant)
     report_id = save_drift_report(
-        report_date=datetime.now().date(),
+        report_date=datetime.now(),
         drift_detected=drift_detected,
         drift_score=drift_score,
         metrics=metrics,
         num_samples=num_samples,
-        drift_threshold=DRIFT_THRESHOLD,
-        report_json=evidently_report
+        retrain_triggered=False,  # Sera mis à jour si retrain déclenché
+        report_url=None
     )
     
     print(f"✅ Report saved with ID: {report_id}")
@@ -264,71 +276,61 @@ def task_check_trigger_retrain(**context):
 # DAG STRUCTURE
 # ============================================================================
 
-with DAG(
-    'drift_detection_daily',
-    default_args=default_args,
-    description='Détection quotidienne du drift du modèle Wakee',
-    schedule='0 2 * * *',  # Tous les jours à 2h
-    start_date=datetime(2024, 1, 1),
-    catchup=False,
-    tags=['drift', 'monitoring', 'mlops'],
-    ) as dag :
+start = EmptyOperator(
+    task_id='start',
+    dag=dag
+)
 
-    start = EmptyOperator(
-        task_id='start',
-        dag=dag
-    )
+fetch_annotations = PythonOperator(
+    task_id='fetch_annotations',
+    python_callable=task_fetch_annotations,
+    dag=dag
+)
 
-    fetch_annotations = PythonOperator(
-        task_id='fetch_annotations',
-        python_callable=task_fetch_annotations,
-        dag=dag
-    )
+calculate_drift = PythonOperator(
+    task_id='calculate_drift',
+    python_callable=task_calculate_drift,
+    dag=dag
+)
 
-    calculate_drift = PythonOperator(
-        task_id='calculate_drift',
-        python_callable=task_calculate_drift,
-        dag=dag
-    )
+generate_report = PythonOperator(
+    task_id='generate_report',
+    python_callable=task_generate_report,
+    dag=dag
+)
 
-    generate_report = PythonOperator(
-        task_id='generate_report',
-        python_callable=task_generate_report,
-        dag=dag
-    )
+save_report = PythonOperator(
+    task_id='save_report',
+    python_callable=task_save_report,
+    dag=dag
+)
 
-    save_report = PythonOperator(
-        task_id='save_report',
-        python_callable=task_save_report,
-        dag=dag
-    )
+generate_summary = PythonOperator(
+    task_id='generate_summary',
+    python_callable=task_generate_summary,
+    dag=dag
+)
 
-    generate_summary = PythonOperator(
-        task_id='generate_summary',
-        python_callable=task_generate_summary,
-        dag=dag
-    )
+check_trigger = PythonOperator(
+    task_id='check_trigger_retrain',
+    python_callable=task_check_trigger_retrain,
+    dag=dag
+)
 
-    check_trigger = PythonOperator(
-        task_id='check_trigger_retrain',
-        python_callable=task_check_trigger_retrain,
-        dag=dag
-    )
+# Trigger retrain DAG (si drift détecté)
+# Note: Le DAG model_retrain doit exister
+trigger_retrain = TriggerDagRunOperator(
+    task_id='trigger_model_retrain',
+    trigger_dag_id='dag_retrain',  # DAG 3
+    wait_for_completion=False,
+    dag=dag
+)
 
-    # Trigger retrain DAG (si drift détecté)
-    # Note: Le DAG model_retrain doit exister
-    trigger_retrain = TriggerDagRunOperator(
-        task_id='trigger_model_retrain',
-        trigger_dag_id='dag_retrain',  # DAG 3
-        wait_for_completion=False,
-        dag=dag
-    )
-
-    end = EmptyOperator(
-        task_id='end',
-        trigger_rule='all_done',
-        dag=dag
-    )
+end = EmptyOperator(
+    task_id='end',
+    trigger_rule='all_done',
+    dag=dag
+)
 
 # Flow
 start >> fetch_annotations >> calculate_drift >> generate_report >> save_report >> generate_summary >> check_trigger

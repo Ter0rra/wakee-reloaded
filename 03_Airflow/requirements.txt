@@ -1,7 +1,6 @@
 # Airflow Requirements - ML/MLOps Stack
 
 # Core ML
-# torch
 onnxruntime
 onnx
 pillow
@@ -9,11 +8,11 @@ numpy
 
 # Data Processing
 pandas
-# scikit-learn
+scikit-learn
 
 # MLOps
 evidently
-# mlflow
+mlflow
 
 # Database
 sqlalchemy

@@ -320,7 +320,7 @@ def run_pytest_suite(**context):
 
     try:
         # Tests directory
-        tests_dir = '/opt/airflow/tests'
+        tests_dir = 'opt/airflow/tests'
         
         if not os.path.exists(tests_dir):
             print(f"⚠️  Tests directory not found: {tests_dir}")
