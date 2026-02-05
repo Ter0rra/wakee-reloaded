@@ -30,14 +30,14 @@ from sqlalchemy import text
 # ============================================================================
 
 # MLflow (commence avec local, migration HF Spaces optionnelle)
-MLFLOW_TRACKING_URI = os.getenv("NEONDB_MLFLOW")
+MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI")
 MLFLOW_EXPERIMENT_NAME = "wakee-model-retrain"
 
 # Training
 MIN_SAMPLES = 5  # Minimum d'annotations pour retrain => preference 100 
 NUM_EPOCHS = 2   # preference 10
 LEARNING_RATE = 1e-4
-BATCH_SIZE = 16
+BATCH_SIZE = 4 # idealement 16
 
 # Versioning
 def generate_version_name():
@@ -158,7 +158,7 @@ def task_download_base_model(**context):
     
     try:
         model_bin_path = download_model_from_hf(
-            filename="model.bin",
+            filename="pytorch_model.bin",
             cache_dir="/tmp/wakee_models"
         )
         
@@ -178,31 +178,65 @@ def task_finetune_model(**context):
     """Fine-tune le modèle PyTorch"""
     print("🔥 Fine-tuning model...")
     
-    # Récupère le base model
-    base_model_path = context['task_instance'].xcom_pull(task_ids='download_base_model', key='base_model_path')
+    # Récupère les données depuis XCom
+    base_model_path = context['task_instance'].xcom_pull(
+        task_ids='download_base_model', 
+        key='base_model_path'
+    )
     
-    # Note: En production, récupère les vrais train/val data
-    # Ici simplifié - tu devras adapter avec les vrais chemins
+    # Reconstruit train/val data (simplifié ici)
+    # En vrai, tu devrais passer les chemins via XCom
+    from utils.data_loader import prepare_training_data, split_dataset
     
-    print("⚠️  Fine-tuning step requires actual data preparation")
-    print("   This is a placeholder - implement full training loop")
+    image_paths, labels, _ = prepare_training_data(
+        min_samples=MIN_SAMPLES,
+        download_dir="/tmp/wakee_training_data"
+    )
     
-    # Log hyperparams dans MLflow
-    mlflow_run_id = context['task_instance'].xcom_pull(task_ids='setup_mlflow', key='mlflow_run_id')
+    train_data, val_data, test_data = split_dataset(image_paths, labels)
+    
+    # VRAI fine-tuning
+    from utils.model_trainer import finetune_model, save_model
+    
+    model, history = finetune_model(
+        model_path=base_model_path,
+        train_data=train_data,
+        val_data=val_data,
+        num_epochs=NUM_EPOCHS,
+        learning_rate=LEARNING_RATE,
+        batch_size=BATCH_SIZE
+    )
+    
+    # Sauvegarde le modèle fine-tuné
+    finetuned_model_path = "/tmp/wakee_finetuned_model.bin"
+    save_model(model, finetuned_model_path)
+    
+    # Log dans MLflow
+    mlflow_run_id = context['task_instance'].xcom_pull(
+        task_ids='setup_mlflow', 
+        key='mlflow_run_id'
+    )
     if mlflow_run_id:
         with mlflow.start_run(run_id=mlflow_run_id):
             mlflow.log_param("learning_rate", LEARNING_RATE)
             mlflow.log_param("batch_size", BATCH_SIZE)
             mlflow.log_param("num_epochs", NUM_EPOCHS)
             
-            # Placeholder metrics
-            for epoch in range(NUM_EPOCHS):
-                mlflow.log_metric("train_loss", 0.5 - epoch * 0.03, step=epoch)
-                mlflow.log_metric("val_loss", 0.6 - epoch * 0.025, step=epoch)
+            # Log metrics depuis history
+            for epoch, (train_loss, val_loss) in enumerate(
+                zip(history['train_loss'], history['val_loss'])
+            ):
+                mlflow.log_metric("train_loss", train_loss, step=epoch)
+                mlflow.log_metric("val_loss", val_loss, step=epoch)
     
-    # Sauvegarde le modèle fine-tuné
-    finetuned_model_path = "/tmp/wakee_finetuned_model.bin"
-    context['task_instance'].xcom_push(key='finetuned_model_path', value=finetuned_model_path)
+    context['task_instance'].xcom_push(
+        key='finetuned_model_path', 
+        value=finetuned_model_path
+    )
+    # context['task_instance'].xcom_push(
+    #     key='pytorch_model_object',
+    #     value=model  # Pour l'export ONNX
+    # )
     
     print(f"✅ Model fine-tuned: {finetuned_model_path}")
 
@@ -214,29 +248,127 @@ def task_evaluate_model(**context):
     """Évalue le modèle sur test set"""
     print("📊 Evaluating model...")
     
-    # Placeholder metrics
+    # les object pytorch ne passe pas dans les xcom
+    # Récupère le modèle et les données
+    # pytorch_model = context['task_instance'].xcom_pull(
+    #     task_ids='finetune_model',
+    #     key='pytorch_model_object'
+    # )
+
+    # Récupère le chemin
+    finetuned_model_path = context['task_instance'].xcom_pull(
+    task_ids='finetune_model',
+    key='finetuned_model_path'
+)
+    
+    # Recharge le modèle
+    from utils.model_trainer import load_pretrained_model
+    pytorch_model = load_pretrained_model(finetuned_model_path)
+    
+    # Reconstruit test data (ou récupère depuis XCom si tu l'as passé)
+    from utils.data_loader import prepare_training_data, split_dataset
+    
+    image_paths, labels, _ = prepare_training_data(
+        min_samples=MIN_SAMPLES,
+        download_dir="/tmp/wakee_training_data"
+    )
+    
+    _, _, test_data = split_dataset(image_paths, labels)
+    
+    # VRAIE évaluation
+    from utils.model_trainer import evaluate_model, EmotionDataset, get_val_transform
+    import torch
+    from torch.utils.data import DataLoader
+    import torch.nn as nn
+    
+    test_images, test_labels = test_data
+    test_dataset = EmotionDataset(test_images, test_labels, get_val_transform())
+    test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
+    
+    criterion = nn.MSELoss()
+    
+    test_loss, test_metrics = evaluate_model(
+        model=pytorch_model,
+        val_loader=test_loader,
+        criterion=criterion
+    )
+    
+    # Calcule accuracy et F1 (si tu veux)
+    # Pour de la régression, ça n'a pas trop de sens mais si tu arrondis :
+    from sklearn.metrics import accuracy_score, f1_score
+    import numpy as np
+    
+    # Prédictions
+    pytorch_model.eval()
+    all_preds = []
+    all_labels = []
+    
+    with torch.no_grad():
+        for images, labels in test_loader:
+            outputs = pytorch_model(images)
+            all_preds.append(outputs.cpu().numpy())
+            all_labels.append(labels.cpu().numpy())
+    
+    all_preds = np.concatenate(all_preds, axis=0)
+    all_labels = np.concatenate(all_labels, axis=0)
+    
+    # Arrondir pour avoir des classes (0, 1, 2, 3)
+    preds_rounded = np.round(all_preds).astype(int)
+    labels_rounded = all_labels.astype(int)
+    
+    # Calcule accuracy moyenne sur les 4 émotions
+    accuracies = []
+    for i in range(4):
+        acc = accuracy_score(labels_rounded[:, i], preds_rounded[:, i])
+        accuracies.append(acc)
+    
+    avg_accuracy = np.mean(accuracies)
+    
+    # F1 score (macro average)
+    f1_scores = []
+    for i in range(4):
+        f1 = f1_score(
+            labels_rounded[:, i], 
+            preds_rounded[:, i], 
+            average='macro',
+            zero_division=0
+        )
+        f1_scores.append(f1)
+    
+    avg_f1 = np.mean(f1_scores)
+    
+    # Compile les métriques
     metrics = {
-        'accuracy': 0.89,
-        'f1_score': 0.87,
-        'mae_boredom': 0.42,
-        'mae_confusion': 0.38,
-        'mae_engagement': 0.35,
-        'mae_frustration': 0.40,
-        'mae_global': 0.39
+        'accuracy': avg_accuracy,
+        'f1_score': avg_f1,
+        'test_loss': test_loss,
+        'mae_global': test_metrics['mae_global'],
+        'mae_boredom': test_metrics['mae_boredom'],
+        'mae_confusion': test_metrics['mae_confusion'],
+        'mae_engagement': test_metrics['mae_engagement'],
+        'mae_frustration': test_metrics['mae_frustration']
     }
     
     # Log dans MLflow
-    mlflow_run_id = context['task_instance'].xcom_pull(task_ids='setup_mlflow', key='mlflow_run_id')
+    mlflow_run_id = context['task_instance'].xcom_pull(
+        task_ids='setup_mlflow',
+        key='mlflow_run_id'
+    )
+    
     if mlflow_run_id:
         with mlflow.start_run(run_id=mlflow_run_id):
-            for key, value in metrics.items():
-                mlflow.log_metric(key, value)
+            for metric_name, metric_value in metrics.items():
+                mlflow.log_metric(f"test_{metric_name}", metric_value)
     
+    # Push to XCom
     context['task_instance'].xcom_push(key='metrics', value=metrics)
     
-    print(f"✅ Evaluation complete:")
-    for key, value in metrics.items():
-        print(f"   {key}: {value:.4f}")
+    print(f"✅ Model evaluated:")
+    print(f"   Accuracy: {metrics['accuracy']:.4f}")
+    print(f"   F1 Score: {metrics['f1_score']:.4f}")
+    print(f"   MAE Global: {metrics['mae_global']:.4f}")
+    
+    return metrics
 
 # ============================================================================
 # TASK 7 : Export to ONNX
@@ -244,16 +376,44 @@ def task_evaluate_model(**context):
 
 def task_export_onnx(**context):
     """Exporte le modèle vers ONNX"""
-    print("🔄 Exporting to ONNX...")
+    print("📦 Exporting to ONNX...")
     
-    finetuned_model_path = context['task_instance'].xcom_pull(task_ids='finetune_model', key='finetuned_model_path')
+    # # Récupère le modèle PyTorch
+    # pytorch_model = context['task_instance'].xcom_pull(
+    #     task_ids='finetune_model',
+    #     key='pytorch_model_object'
+    # )
+
+    # Récupère le chemin
+    finetuned_model_path = context['task_instance'].xcom_pull(
+        task_ids='finetune_model',
+        key='finetuned_model_path'
+    )
+    
+    # Recharge le modèle
+    from utils.model_trainer import load_pretrained_model
+    pytorch_model = load_pretrained_model(finetuned_model_path)    
     
     onnx_model_path = "/tmp/wakee_model.onnx"
     
-    # Placeholder - en production, charge le vrai modèle et exporte
-    print("⚠️  ONNX export placeholder - implement with real model")
+    # VRAI export ONNX
+    from utils.onnx_exporter import export_and_verify
     
-    context['task_instance'].xcom_push(key='onnx_model_path', value=onnx_model_path)
+    success = export_and_verify(
+        pytorch_model=pytorch_model,
+        onnx_path=onnx_model_path,
+        verify=True,
+        test_inference=True,
+        compare=True
+    )
+    
+    if not success:
+        raise RuntimeError("ONNX export failed")
+    
+    context['task_instance'].xcom_push(
+        key='onnx_model_path',
+        value=onnx_model_path
+    )
     
     print(f"✅ ONNX model exported: {onnx_model_path}")
 
@@ -265,19 +425,26 @@ def task_upload_to_hf(**context):
     """Upload model.bin et model.onnx vers HF Hub"""
     print("🚀 Uploading to HuggingFace Hub...")
     
-    finetuned_model_path = context['task_instance'].xcom_pull(task_ids='finetune_model', key='finetuned_model_path')
-    onnx_model_path = context['task_instance'].xcom_pull(task_ids='export_onnx', key='onnx_model_path')
+    finetuned_model_path = context['task_instance'].xcom_pull(
+        task_ids='finetune_model',
+        key='finetuned_model_path'
+    )
+    onnx_model_path = context['task_instance'].xcom_pull(
+        task_ids='export_onnx',
+        key='onnx_model_path'
+    )
     
     version_name = generate_version_name()
     
-    # Placeholder - en production, upload les vrais fichiers
-    print(f"⚠️  Upload placeholder for version: {version_name}")
+    # VRAI upload HF
+    from utils.hf_uploader import upload_model_to_hf
     
-    # URLs fictives
-    uploaded_urls = {
-        'model_bin_url': f"https://huggingface.co/{os.getenv('HF_MODEL_REPO')}/resolve/main/model.bin",
-        'model_onnx_url': f"https://huggingface.co/{os.getenv('HF_MODEL_REPO')}/resolve/main/model.onnx"
-    }
+    uploaded_urls = upload_model_to_hf(
+        model_bin_path=finetuned_model_path,
+        model_onnx_path=onnx_model_path,
+        version_name=version_name,
+        commit_message=f"Automated retrain {version_name}"
+    )
     
     context['task_instance'].xcom_push(key='version_name', value=version_name)
     context['task_instance'].xcom_push(key='uploaded_urls', value=uploaded_urls)
