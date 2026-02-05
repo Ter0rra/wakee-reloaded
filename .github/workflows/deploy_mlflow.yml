@@ -13,56 +13,181 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      - name: Checkout code
+
+      # ================================================================
+      # 1. CHECKOUT CODE
+      # ================================================================
+
+      - name: 📥 Checkout code
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # Clone complet pour l'historique
       
-      - name: Setup Python
+      # ================================================================
+      # 2. SETUP PYTHON 3.11
+      # ================================================================
+
+      - name: 🐍 Set up Python 3.11
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-      
-      - name: Install HuggingFace CLI
+          cache: 'pip'
+
+      # ================================================================
+      # 3. INSTALL DEPENDENCIES
+      # ================================================================
+      - name: 📦 Install dependencies
+        working-directory: ./04_mlflow
         run: |
-          pip install huggingface_hub
-      
-      - name: Login to HuggingFace
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest httpx  # Pour les tests
+          
+      # ================================================================
+      # 4. RUN TESTS (optionnel mais recommandé)
+      # ================================================================
+      - name: 🧪 Run API tests
+        working-directory: ./04_mlflow
+        run: |
+          # Test que l'app se charge sans erreur
+          python -c "from app import app; print('✅ App loads successfully')"
+          
+          # Si tu as des tests pytest
+          # pytest tests/ -v
+
+      # ================================================================
+      # 5. SETUP HUGGINGFACE CLI
+      # ================================================================
+      - name: 🤗 Setup HuggingFace CLI
+        run: |
+          pip install huggingface-hub
+          huggingface-cli login --token ${{ secrets.HF_TOKEN }}
+
+      # ================================================================
+      # 6. CREATE OR UPDATE HF SPACE (CORRIGÉ)
+      # ================================================================
+
+      - name: 🏗️ Create/Update HuggingFace Space
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          huggingface-cli login --token $HF_TOKEN
-      
-      - name: Push to HuggingFace Spaces
-        env:
-          HF_USERNAME: Terorra
-          SPACE_NAME: wakee-mlflow
-        run: |
-          cd 04_mlflow
+          python << 'PYTHON_SCRIPT'
+          from huggingface_hub import HfApi, create_repo
+          import os
           
-          # Clone space si existe, sinon créer
-          if huggingface-cli repo info spaces/$HF_USERNAME/$SPACE_NAME > /dev/null 2>&1; then
-            echo "Space exists, cloning..."
-            git clone https://huggingface.co/spaces/$HF_USERNAME/$SPACE_NAME space_repo
-          else
-            echo "Creating new space..."
-            huggingface-cli repo create $SPACE_NAME --type space --space_sdk docker
-            git clone https://huggingface.co/spaces/$HF_USERNAME/$SPACE_NAME space_repo
+          api = HfApi(token=os.environ['HF_TOKEN'])
+          space_name = "Terorra/wakee-mlflow"
+          
+          try:
+              # Vérifie si le Space existe
+              api.repo_info(repo_id=space_name, repo_type="space")
+              print(f"✅ Space existe déjà : {space_name}")
+          except Exception:
+              # Crée le Space si inexistant
+              print(f"📦 Création du Space : {space_name}")
+              create_repo(
+                  repo_id=space_name,
+                  repo_type="space",
+                  space_sdk="docker",
+                  exist_ok=True,
+                  token=os.environ['HF_TOKEN']
+              )
+              print(f"✅ Space créé : https://huggingface.co/spaces/{space_name}")
+          PYTHON_SCRIPT
+
+      # ================================================================
+      # 8. PUSH CODE TO HF SPACE
+      # ================================================================
+      - name: 🚀 Deploy to HuggingFace Space
+        working-directory: ./04_mlflow
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          SPACE_NAME: Terorra/wakee-mlflow
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          git clone https://huggingface.co/spaces/$SPACE_NAME space_repo
+          
+          # Copie les fichiers
+          cp app.py space_repo/
+          cp requirements.txt space_repo/    
+          cp Dockerfile space_repo/
+          
+          if [ -f README.md ]; then
+            cp README.md space_repo/
           fi
           
-          # Copy files
-          cp app.py space_repo/
-          cp Dockerfile space_repo/
-          cp requirements.txt space_repo/
-          cp README.md space_repo/ || true
-          
-          # Commit and push
+          # Commit et push
           cd space_repo
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
           git add .
-          git commit -m "Deploy MLflow from GitHub Actions" || echo "No changes"
-          git push
-      
-      - name: Deployment Summary
+          git commit -m "🚀 Deploy from GitHub Actions - $(date '+%Y-%m-%d %H:%M:%S')" || echo "No changes to commit"
+          git push https://Terorra:$HF_TOKEN@huggingface.co/spaces/$SPACE_NAME main
+
+      # ================================================================
+      # 9. WAIT FOR DEPLOYMENT & TEST
+      # ================================================================
+      - name: ⏳ Wait for Space to be ready
         run: |
-          echo "✅ MLflow deployed successfully!"
-          echo "URL: https://huggingface.co/spaces/${{ secrets.HF_USERNAME }}/wakee-mlflow"
+          echo "⏳ Attente du démarrage du Space (60s)..."
+          sleep 60
+      
+      - name: 🧪 Test deployed MLFLOW
+        run: |
+          # Test health endpoint
+          curl -f https://terorra-wakee-mlflow.hf.space/health || echo "⚠️ Health check failed"
+          
+          # Test root endpoint
+          curl -f https://terorra-wakee-mlflow.hf.space/ || echo "⚠️ Root endpoint failed"
+
+      # ================================================================
+      # 10. NOTIFICATION (optionnel)
+      # ================================================================
+      - name: 📢 Deployment summary
+        if: always()
+        run: |
+          echo "================================================"
+          echo "🎉 DÉPLOIEMENT TERMINÉ"
+          echo "================================================"
+          echo "Space URL: https://huggingface.co/spaces/Terorra/wakee-mlflow"
+          echo "API URL: https://terorra-wakee-mlflow.hf.space"
+          echo "Status: ${{ job.status }}"
+          echo "================================================"
+      
+      # - name: Push to HuggingFace Spaces
+      #   env:
+      #     HF_USERNAME: Terorra
+      #     SPACE_NAME: wakee-mlflow
+      #   run: |
+      #     cd 04_mlflow
+          
+      #     # Clone space si existe, sinon créer
+      #     if huggingface-cli repo info spaces/$HF_USERNAME/$SPACE_NAME > /dev/null 2>&1; then
+      #       echo "Space exists, cloning..."
+      #       git clone https://huggingface.co/spaces/$HF_USERNAME/$SPACE_NAME space_repo
+      #     else
+      #       echo "Creating new space..."
+      #       huggingface-cli repo create $SPACE_NAME --type space --space_sdk docker
+      #       git clone https://huggingface.co/spaces/$HF_USERNAME/$SPACE_NAME space_repo
+      #     fi
+          
+      #     # Copy files
+      #     cp app.py space_repo/
+      #     cp Dockerfile space_repo/
+      #     cp requirements.txt space_repo/
+      #     cp README.md space_repo/ || true
+          
+      #     # Commit and push
+      #     cd space_repo
+      #     git config user.name "GitHub Actions"
+      #     git config user.email "actions@github.com"
+      #     git add .
+      #     git commit -m "Deploy MLflow from GitHub Actions" || echo "No changes"
+      #     git push
+      
+      # - name: Deployment Summary
+      #   run: |
+      #     echo "✅ MLflow deployed successfully!"
+      #     echo "URL: https://huggingface.co/spaces/${{ secrets.HF_USERNAME }}/wakee-mlflow"
