@@ -330,7 +330,7 @@ async def insert_annotation(
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         random_suffix = hash(image_bytes) % 10000
         img_name = f"{timestamp}_{random_suffix:04d}.jpg"
-        s3_key = f"collected/{img_name}"
+        s3_key = f"{img_name}"
         
         # 3. Upload vers Cloudflare R2
         print(f"📤 Upload vers R2 : {s3_key}")

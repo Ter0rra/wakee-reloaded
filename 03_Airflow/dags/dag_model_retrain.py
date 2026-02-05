@@ -30,12 +30,12 @@ from sqlalchemy import text
 # ============================================================================
 
 # MLflow (commence avec local, migration HF Spaces optionnelle)
-MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://mlflow:5000")
+MLFLOW_TRACKING_URI = os.getenv("NEONDB_MLFLOW")
 MLFLOW_EXPERIMENT_NAME = "wakee-model-retrain"
 
 # Training
-MIN_SAMPLES = 100  # Minimum d'annotations pour retrain
-NUM_EPOCHS = 10
+MIN_SAMPLES = 5  # Minimum d'annotations pour retrain => preference 100 
+NUM_EPOCHS = 2   # preference 10
 LEARNING_RATE = 1e-4
 BATCH_SIZE = 16
 
