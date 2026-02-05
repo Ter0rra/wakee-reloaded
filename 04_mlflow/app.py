@@ -6,11 +6,36 @@ Deployed on HuggingFace Spaces
 import os
 import subprocess
 import sys
+import dotenv
+
 
 # Configuration
-MLFLOW_BACKEND_STORE_URI = os.getenv("MLFLOW_BACKEND_STORE_URI")
-MLFLOW_ARTIFACT_ROOT = os.getenv("MLFLOW_ARTIFACT_ROOT")
-MLFLOW_S3_ENDPOINT_URL = os.getenv("MLFLOW_S3_ENDPOINT_URL")
+
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
+
+def load_env_vars():
+    """Charge .env en local, utilise env vars en prod"""
+    is_production = os.getenv("SPACE_ID") is not None
+    
+    if not is_production:
+        from pathlib import Path
+        try:
+            from dotenv import load_dotenv
+            root_dir = Path(__file__).resolve().parent.parent
+            dotenv_path = root_dir / '.env'
+            if dotenv_path.exists():
+                load_dotenv(dotenv_path)
+                print(f"✅ .env chargé depuis : {dotenv_path}")
+        except ImportError:
+            print("⚠️  python-dotenv non installé (OK en production)")
+
+load_env_vars()
+
+MLFLOW_BACKEND_STORE_URI = os.getenv("NEONDB_MLFLOW")
+MLFLOW_ARTIFACT_ROOT = os.getenv("R2_WR_MLFLOW_URI")
+# MLFLOW_S3_ENDPOINT_URL = os.getenv("R2_WR_MLFLOW_URI")
 
 # HF Spaces port
 PORT = int(os.getenv("PORT", 7860))
