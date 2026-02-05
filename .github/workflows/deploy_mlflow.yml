@@ -43,17 +43,6 @@ jobs:
           pip install -r requirements.txt
           pip install pytest httpx  # Pour les tests
           
-      # ================================================================
-      # 4. RUN TESTS (optionnel mais recommandé)
-      # ================================================================
-      - name: 🧪 Run API tests
-        working-directory: ./04_mlflow
-        run: |
-          # Test que l'app se charge sans erreur
-          python -c "from app import app; print('✅ App loads successfully')"
-          
-          # Si tu as des tests pytest
-          # pytest tests/ -v
 
       # ================================================================
       # 5. SETUP HUGGINGFACE CLI
@@ -156,38 +145,4 @@ jobs:
           echo "Status: ${{ job.status }}"
           echo "================================================"
       
-      # - name: Push to HuggingFace Spaces
-      #   env:
-      #     HF_USERNAME: Terorra
-      #     SPACE_NAME: wakee-mlflow
-      #   run: |
-      #     cd 04_mlflow
-          
-      #     # Clone space si existe, sinon créer
-      #     if huggingface-cli repo info spaces/$HF_USERNAME/$SPACE_NAME > /dev/null 2>&1; then
-      #       echo "Space exists, cloning..."
-      #       git clone https://huggingface.co/spaces/$HF_USERNAME/$SPACE_NAME space_repo
-      #     else
-      #       echo "Creating new space..."
-      #       huggingface-cli repo create $SPACE_NAME --type space --space_sdk docker
-      #       git clone https://huggingface.co/spaces/$HF_USERNAME/$SPACE_NAME space_repo
-      #     fi
-          
-      #     # Copy files
-      #     cp app.py space_repo/
-      #     cp Dockerfile space_repo/
-      #     cp requirements.txt space_repo/
-      #     cp README.md space_repo/ || true
-          
-      #     # Commit and push
-      #     cd space_repo
-      #     git config user.name "GitHub Actions"
-      #     git config user.email "actions@github.com"
-      #     git add .
-      #     git commit -m "Deploy MLflow from GitHub Actions" || echo "No changes"
-      #     git push
-      
-      # - name: Deployment Summary
-      #   run: |
-      #     echo "✅ MLflow deployed successfully!"
-      #     echo "URL: https://huggingface.co/spaces/${{ secrets.HF_USERNAME }}/wakee-mlflow"
+
