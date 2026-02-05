@@ -6,6 +6,10 @@ onnx
 pillow
 numpy
 
+# pytorch
+torch==2.1.2+cpu --index-url https://download.pytorch.org/whl/cpu
+torchvision==0.16.2+cpu --index-url https://download.pytorch.org/whl/cpu
+
 # Data Processing
 pandas
 scikit-learn

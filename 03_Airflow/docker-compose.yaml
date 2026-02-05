@@ -54,14 +54,14 @@ x-airflow-common:
   env_file:
     - ${ENV_FILE_PATH:-../.env}
 
-  deploy:
-    resources:
-      limits:
-        cpus: '2.0'
-        memory: 2G
-      reservations:
-        cpus: '1.0'
-        memory: 1G
+  # deploy:
+  #   resources:
+  #     limits:
+  #       cpus: '2.0'
+  #       memory: 2G
+  #     reservations:
+  #       cpus: '1.0'
+  #       memory: 1G
   
   environment:
     &airflow-common-env
