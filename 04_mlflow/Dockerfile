@@ -31,6 +31,6 @@ ENV PORT=7860
 # Run MLflow server directly (no app.py)
 CMD mlflow server \
     --host 0.0.0.0 \
-    --port ${PORT} \
-    --backend-store-uri ${MLFLOW_BACKEND_STORE_URI} \
-    --default-artifact-root ${MLFLOW_ARTIFACT_ROOT}
+    --port "${PORT} "\
+    --backend-store-uri "${MLFLOW_BACKEND_STORE_URI}" \
+    --default-artifact-root "${MLFLOW_ARTIFACT_ROOT}"

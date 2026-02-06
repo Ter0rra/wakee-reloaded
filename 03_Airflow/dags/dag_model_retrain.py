@@ -29,9 +29,13 @@ from sqlalchemy import text
 # CONFIGURATION
 # ============================================================================
 
-# MLflow (commence avec local, migration HF Spaces optionnelle)
+# MLflow
 MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI")
 MLFLOW_EXPERIMENT_NAME = "wakee-model-retrain"
+
+R2_ACCESS_KEY_ID = os.getenv("R2_ACCESS_KEY_ID")
+R2_SECRET_ACCESS_KEY = os.getenv("R2_SECRET_ACCESS_KEY")
+R2_ENDPOINT_URL = os.getenv("R2_URI")
 
 # Training
 MIN_SAMPLES = 5  # Minimum d'annotations pour retrain => preference 100 
@@ -65,12 +69,21 @@ dag = DAG(
 )
 
 # ============================================================================
-# TASK 1 : Setup MLflow
+# TASK 1 : Setup MLflow + R2
 # ============================================================================
 
 def task_setup_mlflow(**context):
-    """Configure MLflow tracking"""
-    print("🔧 Setting up MLflow...")
+    """Configure MLflow tracking + R2 credentials"""
+    print("🔧 Setting up MLflow + R2...")
+    
+    # ✅ CONFIGURE R2 pour boto3 (CRITIQUE pour artifacts)
+    if R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY and R2_ENDPOINT_URL:
+        os.environ['AWS_ACCESS_KEY_ID'] = R2_ACCESS_KEY_ID
+        os.environ['AWS_SECRET_ACCESS_KEY'] = R2_SECRET_ACCESS_KEY
+        os.environ['MLFLOW_S3_ENDPOINT_URL'] = R2_ENDPOINT_URL
+        print("✅ R2 credentials configured for MLflow artifacts")
+    else:
+        print("⚠️  R2 credentials missing - artifacts won't save!")
     
     try:
         mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
@@ -178,14 +191,11 @@ def task_finetune_model(**context):
     """Fine-tune le modèle PyTorch"""
     print("🔥 Fine-tuning model...")
     
-    # Récupère les données depuis XCom
     base_model_path = context['task_instance'].xcom_pull(
         task_ids='download_base_model', 
         key='base_model_path'
     )
     
-    # Reconstruit train/val data (simplifié ici)
-    # En vrai, tu devrais passer les chemins via XCom
     from utils.data_loader import prepare_training_data, split_dataset
     
     image_paths, labels, _ = prepare_training_data(
@@ -195,7 +205,6 @@ def task_finetune_model(**context):
     
     train_data, val_data, test_data = split_dataset(image_paths, labels)
     
-    # VRAI fine-tuning
     from utils.model_trainer import finetune_model, save_model
     
     model, history = finetune_model(
@@ -211,34 +220,47 @@ def task_finetune_model(**context):
     finetuned_model_path = "/tmp/wakee_finetuned_model.bin"
     save_model(model, finetuned_model_path)
     
-    # Log dans MLflow
+    # ✅ LOG DANS MLFLOW (params + metrics + ARTIFACT)
     mlflow_run_id = context['task_instance'].xcom_pull(
         task_ids='setup_mlflow', 
         key='mlflow_run_id'
     )
     if mlflow_run_id:
-        with mlflow.start_run(run_id=mlflow_run_id):
-            mlflow.log_param("learning_rate", LEARNING_RATE)
-            mlflow.log_param("batch_size", BATCH_SIZE)
-            mlflow.log_param("num_epochs", NUM_EPOCHS)
+        try:
+            with mlflow.start_run(run_id=mlflow_run_id):
+                # Log hyperparams
+                mlflow.log_param("learning_rate", LEARNING_RATE)
+                mlflow.log_param("batch_size", BATCH_SIZE)
+                mlflow.log_param("num_epochs", NUM_EPOCHS)
+                
+                # Log metrics
+                for epoch, (train_loss, val_loss) in enumerate(
+                    zip(history['train_loss'], history['val_loss'])
+                ):
+                    mlflow.log_metric("train_loss", train_loss, step=epoch)
+                    mlflow.log_metric("val_loss", val_loss, step=epoch)
+                
+                # ✅ LOG ARTIFACT UNIQUEMENT (pas de pytorch.log_model)
+                mlflow.log_artifact(finetuned_model_path, artifact_path="models")
+                print(f"✅ Logged PyTorch model artifact to MLflow")
+                
+        except Exception as e:
+            print(f"⚠️  MLflow logging failed: {e}")
             
-            # Log metrics depuis history
-            for epoch, (train_loss, val_loss) in enumerate(
-                zip(history['train_loss'], history['val_loss'])
-            ):
-                mlflow.log_metric("train_loss", train_loss, step=epoch)
-                mlflow.log_metric("val_loss", val_loss, step=epoch)
+            # # ✅ LOG MODEL AVEC PYTORCH FLAVOR (optionnel mais recommandé)
+            # mlflow.pytorch.log_model(model, "pytorch_model")
+            # print(f"✅ Logged PyTorch model with MLflow Model Registry")
     
     context['task_instance'].xcom_push(
         key='finetuned_model_path', 
         value=finetuned_model_path
     )
-    # context['task_instance'].xcom_push(
-    #     key='pytorch_model_object',
-    #     value=model  # Pour l'export ONNX
-    # )
+    context['task_instance'].xcom_push(
+        key='history',
+        value=history
+    )
     
-    print(f"✅ Model fine-tuned: {finetuned_model_path}")
+    print(f"✅ Model fine-tuned and logged to MLflow: {finetuned_model_path}")
 
 # ============================================================================
 # TASK 6 : Evaluate Model
@@ -376,31 +398,28 @@ def task_evaluate_model(**context):
 
 def task_export_onnx(**context):
     """Exporte le modèle vers ONNX"""
-    print("📦 Exporting to ONNX...")
+    print("🔄 Exporting to ONNX...")
     
-    # # Récupère le modèle PyTorch
-    # pytorch_model = context['task_instance'].xcom_pull(
-    #     task_ids='finetune_model',
-    #     key='pytorch_model_object'
-    # )
-
-    # Récupère le chemin
+    # Récupère le modèle PyTorch
+    base_model_path = context['task_instance'].xcom_pull(
+        task_ids='download_base_model',
+        key='base_model_path'
+    )
     finetuned_model_path = context['task_instance'].xcom_pull(
         task_ids='finetune_model',
         key='finetuned_model_path'
     )
     
-    # Recharge le modèle
+    # Load model
     from utils.model_trainer import load_pretrained_model
-    pytorch_model = load_pretrained_model(finetuned_model_path)    
+    model = load_pretrained_model(finetuned_model_path)
     
+    # Export ONNX
+    from utils.onnx_exporter import export_and_verify
     onnx_model_path = "/tmp/wakee_model.onnx"
     
-    # VRAI export ONNX
-    from utils.onnx_exporter import export_and_verify
-    
     success = export_and_verify(
-        pytorch_model=pytorch_model,
+        pytorch_model=model,
         onnx_path=onnx_model_path,
         verify=True,
         test_inference=True,
@@ -410,12 +429,27 @@ def task_export_onnx(**context):
     if not success:
         raise RuntimeError("ONNX export failed")
     
+    # ✅ LOG ARTIFACT ONNX MODEL DANS MLFLOW
+    mlflow_run_id = context['task_instance'].xcom_push(key='onnx_model_path', value=onnx_model_path)
+    
+    mlflow_run_id = context['task_instance'].xcom_pull(
+        task_ids='setup_mlflow',
+        key='mlflow_run_id'
+    )
+    if mlflow_run_id:
+        try:
+            with mlflow.start_run(run_id=mlflow_run_id):
+                mlflow.log_artifact(onnx_model_path, artifact_path="models")
+                print(f"✅ Logged ONNX model artifact to MLflow")
+        except Exception as e:
+            print(f"⚠️  MLflow logging failed: {e}")
+    
     context['task_instance'].xcom_push(
         key='onnx_model_path',
         value=onnx_model_path
     )
     
-    print(f"✅ ONNX model exported: {onnx_model_path}")
+    print(f"✅ ONNX model exported and logged: {onnx_model_path}")
 
 # ============================================================================
 # TASK 8 : Upload to HF Hub
