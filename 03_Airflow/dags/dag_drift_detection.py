@@ -321,7 +321,7 @@ check_trigger = PythonOperator(
 # Note: Le DAG model_retrain doit exister
 trigger_retrain = TriggerDagRunOperator(
     task_id='trigger_model_retrain',
-    trigger_dag_id='dag_retrain',  # DAG 3
+    trigger_dag_id='model_retrain',  # DAG 3
     wait_for_completion=False,
     dag=dag
 )

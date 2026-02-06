@@ -3,6 +3,7 @@
 # Core ML
 onnxruntime
 onnx
+onnxscript
 pillow
 numpy
 

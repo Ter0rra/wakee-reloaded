@@ -42,7 +42,6 @@ logs/
 03_Airflow/plugins/
 03_Airflow/models/
 03_Airflow/config/
-03_Airflow/utils/
 
 # OS
 .DS_Store
