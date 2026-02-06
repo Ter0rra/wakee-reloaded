@@ -79,7 +79,7 @@ def task_fetch_annotations(**context):
     
     # Statistiques rapides
     print(f"\n📊 Data Summary:")
-    print(f"   Date range: {df['created_at'].min()} to {df['created_at'].max()}")
+    print(f"   Date range: {df['timestamp'].min()} to {df['timestamp'].max()}")
     print(f"   Mean predicted engagement: {df['predicted_engagement'].mean():.2f}")
     print(f"   Mean user engagement: {df['user_engagement'].mean():.2f}")
     
