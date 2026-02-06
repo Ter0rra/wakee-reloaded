@@ -1,0 +1,196 @@
+name: 🚀 Deploy MLflow to HuggingFace Spaces
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '04_mlflow/**'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: 📊 Deploy MLflow Tracking Server
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      
+      - name: 🐍 Setup Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: 📦 Install dependencies
+        run: |
+          echo "📥 Installing dependencies..."
+          python -m pip install --upgrade pip
+          python -m pip install huggingface_hub gitpython
+          echo "✅ Dependencies installed"
+      
+      - name: 🚀 Deploy to HuggingFace Spaces
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_USERNAME: ${{ secrets.HF_USERNAME }}
+          SPACE_NAME: wakee-mlflow
+        run: |
+          python - <<'PYTHON_SCRIPT'
+          import os
+          import subprocess
+          from pathlib import Path
+          from huggingface_hub import HfApi, create_repo
+          
+          # Configuration
+          HF_TOKEN = os.environ['HF_TOKEN']
+          HF_USERNAME = os.environ['HF_USERNAME']
+          SPACE_NAME = os.environ['SPACE_NAME']
+          REPO_ID = f"{HF_USERNAME}/{SPACE_NAME}"
+          
+          print("=" * 64)
+          print("🚀 DEPLOYING MLFLOW TO HUGGINGFACE SPACES")
+          print("=" * 64)
+          print(f"📊 Space: {REPO_ID}")
+          print(f"📁 Source: 04_mlflow/")
+          print("=" * 64)
+          
+          # Initialize API
+          api = HfApi(token=HF_TOKEN)
+          
+          # Check if space exists
+          print("\n🔍 Checking if Space exists...")
+          try:
+              api.space_info(REPO_ID)
+              print(f"✅ Space exists: {REPO_ID}")
+              space_exists = True
+          except Exception:
+              print(f"🆕 Space not found, will create: {REPO_ID}")
+              space_exists = False
+          
+          # Create space if doesn't exist
+          if not space_exists:
+              print("\n🆕 Creating new Space...")
+              try:
+                  create_repo(
+                      repo_id=SPACE_NAME,
+                      token=HF_TOKEN,
+                      repo_type="space",
+                      space_sdk="docker"
+                  )
+                  print(f"✅ Space created: {REPO_ID}")
+              except Exception as e:
+                  print(f"❌ Failed to create space: {e}")
+                  exit(1)
+          
+          # Clone space
+          print(f"\n📥 Cloning Space...")
+          os.chdir("04_mlflow")
+          
+          subprocess.run([
+              "git", "clone",
+              f"https://oauth2:{HF_TOKEN}@huggingface.co/spaces/{REPO_ID}",
+              "space_repo"
+          ], check=True)
+          
+          print("✅ Space cloned")
+          
+          # Prepare files
+          print("\n📋 Preparing files for deployment...")
+          
+          files_to_copy = {
+              "Dockerfile": "📄 Copying Dockerfile...",
+              "requirements.txt": "📄 Copying requirements.txt...",
+              "README.md": "📄 Copying README.md...",
+              ".dockerignore": "📄 Copying .dockerignore..."
+          }
+          
+          for file, msg in files_to_copy.items():
+              print(f"  {msg}")
+              src = Path(file)
+              dst = Path("space_repo") / file
+              if src.exists():
+                  dst.write_text(src.read_text())
+              elif file != ".dockerignore":  # .dockerignore is optional
+                  print(f"    ⚠️  {file} not found")
+          
+          # Remove app.py if exists
+          app_py = Path("space_repo/app.py")
+          if app_py.exists():
+              print("  🗑️  Removing old app.py...")
+              app_py.unlink()
+          
+          print("✅ Files prepared")
+          
+          # Git operations
+          print("\n📤 Pushing to HuggingFace Spaces...")
+          os.chdir("space_repo")
+          
+          subprocess.run(["git", "config", "user.name", "🤖 GitHub Actions Bot"], check=True)
+          subprocess.run(["git", "config", "user.email", "actions@github.com"], check=True)
+          subprocess.run(["git", "add", "."], check=True)
+          subprocess.run(["git", "add", "-u"], check=True)
+          
+          # Check if there are changes
+          result = subprocess.run(["git", "diff", "--staged", "--quiet"])
+          
+          if result.returncode == 0:
+              print("ℹ️  No changes to deploy")
+          else:
+              from datetime import datetime
+              commit_msg = f"🚀 Deploy MLflow {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+              subprocess.run(["git", "commit", "-m", commit_msg], check=True)
+              subprocess.run(["git", "push"], check=True)
+              print("✅ Deployment successful!")
+          
+          PYTHON_SCRIPT
+      
+      - name: 🎉 Deployment Summary
+        if: success()
+        run: |
+          echo ""
+          echo "════════════════════════════════════════════════════════════════"
+          echo "🎉 MLFLOW DEPLOYMENT COMPLETED SUCCESSFULLY!"
+          echo "════════════════════════════════════════════════════════════════"
+          echo ""
+          echo "📊 MLflow Tracking Server deployed to:"
+          echo "   🔗 https://huggingface.co/spaces/${{ secrets.HF_USERNAME }}/wakee-mlflow"
+          echo ""
+          echo "📋 Files deployed:"
+          echo "   ✅ Dockerfile"
+          echo "   ✅ requirements.txt"
+          echo "   ✅ README.md"
+          echo "   ✅ .dockerignore"
+          echo ""
+          echo "⚙️  Configuration:"
+          echo "   📦 No app.py (MLflow runs directly)"
+          echo "   🐳 Docker SDK"
+          echo "   🐍 Python 3.11"
+          echo ""
+          echo "🔧 Next steps:"
+          echo "   1. Configure environment variables in Space Settings"
+          echo "   2. Wait for Space to build (~3-5 minutes)"
+          echo "   3. Access MLflow UI at the URL above"
+          echo ""
+          echo "════════════════════════════════════════════════════════════════"
+      
+      - name: ❌ Deployment Failed
+        if: failure()
+        run: |
+          echo ""
+          echo "════════════════════════════════════════════════════════════════"
+          echo "❌ MLFLOW DEPLOYMENT FAILED"
+          echo "════════════════════════════════════════════════════════════════"
+          echo ""
+          echo "🔍 Troubleshooting:"
+          echo "   1. Check HF_TOKEN secret is set correctly"
+          echo "   2. Check HF_USERNAME secret is set correctly"
+          echo "   3. Verify files exist in 04_mlflow/"
+          echo "   4. Check Space permissions"
+          echo ""
+          echo "📚 Documentation:"
+          echo "   https://huggingface.co/docs/hub/spaces"
+          echo ""
+          echo "════════════════════════════════════════════════════════════════"
+          exit 1
