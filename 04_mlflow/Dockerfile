@@ -24,7 +24,8 @@
 # # Run MLflow server
 # CMD ["python", "app.py"]
 
-FROM continuumio/miniconda3
+FROM python:3.11-slim
+# FROM continuumio/miniconda3
 
 RUN apt-get update
 RUN apt-get install nano unzip curl -y
@@ -44,7 +45,9 @@ WORKDIR $HOME/app
 COPY --chown=user . $HOME/app
 
 COPY requirements.txt /requirements.txt
-RUN pip install -r /requirements.txt
+RUN pip install --no-cache-dir -r /requirements.txt
+
+EXPOSE 7860
 
 CMD mlflow server -p 7860 \
     --host 0.0.0.0 \
