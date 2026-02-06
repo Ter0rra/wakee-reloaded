@@ -1,5 +1,5 @@
 ---
-title: Wakee MLflow Tracking
+title: Wakee MLflow
 emoji: 📊
 colorFrom: blue
 colorTo: purple
