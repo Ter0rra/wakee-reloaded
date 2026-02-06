@@ -46,7 +46,7 @@ jobs:
           # Configuration
           HF_TOKEN = os.environ['HF_TOKEN']
           HF_USERNAME = terorra
-          SPACE_NAME = Wakee MLflow
+          SPACE_NAME = Wakee-mlflow
           REPO_ID = f"{HF_USERNAME}/{SPACE_NAME}"
           
           print("=" * 64)
