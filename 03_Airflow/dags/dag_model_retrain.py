@@ -243,6 +243,10 @@ def task_finetune_model(**context):
                 # ✅ LOG ARTIFACT UNIQUEMENT (pas de pytorch.log_model)
                 mlflow.log_artifact(finetuned_model_path, artifact_path="models")
                 print(f"✅ Logged PyTorch model artifact to MLflow")
+
+                # # ✅ LOG MODEL AVEC PYTORCH FLAVOR (optionnel mais recommandé)
+                # mlflow.pytorch.log_model(model, "pytorch_model")
+                # print(f"✅ Logged PyTorch model with MLflow Model Registry")
                 
         except Exception as e:
             print(f"⚠️  MLflow logging failed: {e}")
