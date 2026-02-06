@@ -35,11 +35,7 @@ load_env_vars()
 
 MLFLOW_BACKEND_STORE_URI = os.getenv("NEONDB_MLFLOW")
 MLFLOW_ARTIFACT_ROOT = os.getenv("R2_WR_MLFLOW_URI")
-
-# ✅ Configuration S3 pour R2 (CRITIQUE)
-AWS_ACCESS_KEY_ID = os.getenv("R2_ACCESS_KEY_ID")
-AWS_SECRET_ACCESS_KEY = os.getenv("R2_SECRET_ACCESS_KEY")
-R2_ENDPOINT_URL = os.getenv("R2_URI")
+# MLFLOW_S3_ENDPOINT_URL = os.getenv("R2_WR_MLFLOW_URI")
 
 # HF Spaces port
 PORT = int(os.getenv("PORT", 7860))
@@ -50,36 +46,20 @@ def main():
     print("="*70)
     print("🚀 Starting MLflow Tracking Server")
     print("="*70)
-    print(f"Backend Store: {MLFLOW_BACKEND_STORE_URI[:50] if MLFLOW_BACKEND_STORE_URI else 'NOT SET'}...")
-    print(f"Artifact Root: {MLFLOW_ARTIFACT_ROOT}")
-    print(f"R2 Endpoint: {R2_ENDPOINT_URL}")
+    # print(f"Backend Store: {MLFLOW_BACKEND_STORE_URI[:50]}...")
+    # print(f"Artifact Root: {MLFLOW_ARTIFACT_ROOT}")
     print(f"Port: {PORT}")
     print("="*70)
     
     # Vérifie que les variables sont configurées
     if not MLFLOW_BACKEND_STORE_URI:
-        print("❌ ERROR: NEONDB_MLFLOW not set")
+        print("❌ ERROR: MLFLOW_BACKEND_STORE_URI not set")
         print("Configure it in HuggingFace Spaces Settings")
         sys.exit(1)
     
     if not MLFLOW_ARTIFACT_ROOT:
-        print("❌ ERROR: R2_WR_MLFLOW_URI not set")
+        print("❌ ERROR: MLFLOW_ARTIFACT_ROOT not set")
         sys.exit(1)
-    
-    if not AWS_ACCESS_KEY_ID or not AWS_SECRET_ACCESS_KEY:
-        print("❌ ERROR: R2_ACCESS_KEY_ID or R2_SECRET_ACCESS_KEY not set")
-        sys.exit(1)
-    
-    if not R2_ENDPOINT_URL:
-        print("❌ ERROR: R2_ENDPOINT_URL not set")
-        sys.exit(1)
-    
-    # ✅ Configure les variables d'environnement S3 pour boto3
-    os.environ['AWS_ACCESS_KEY_ID'] = AWS_ACCESS_KEY_ID
-    os.environ['AWS_SECRET_ACCESS_KEY'] = AWS_SECRET_ACCESS_KEY
-    os.environ['MLFLOW_S3_ENDPOINT_URL'] = R2_ENDPOINT_URL
-    
-    print("✅ S3/R2 credentials configured")
     
     # Commande MLflow
     cmd = [
