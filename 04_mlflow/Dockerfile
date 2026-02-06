@@ -45,6 +45,7 @@ WORKDIR $HOME/app
 COPY --chown=user . $HOME/app
 
 COPY requirements.txt /requirements.txt
+RUN pip install --no-cache-dir HuggingFace-hub
 RUN pip install --no-cache-dir -r /requirements.txt
 
 EXPOSE 7860
