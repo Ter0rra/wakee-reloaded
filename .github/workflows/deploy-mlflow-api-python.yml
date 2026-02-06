@@ -45,7 +45,7 @@ jobs:
           
           # Configuration
           HF_TOKEN = os.environ['HF_TOKEN']
-          HF_USERNAME = terorra
+          HF_USERNAME = Terorra
           SPACE_NAME = Wakee-mlflow
           REPO_ID = f"{HF_USERNAME}/{SPACE_NAME}"
           
@@ -67,7 +67,7 @@ jobs:
               space_exists = True
           except Exception:
               print(f"🆕 Space not found, will create: {REPO_ID}")
-              space_exists = False
+              space_exists = True
           
           # Create space if doesn't exist
           if not space_exists:
