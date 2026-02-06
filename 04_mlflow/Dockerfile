@@ -1,23 +1,36 @@
+# MLflow Tracking Server - HuggingFace Spaces
+# Simple & Working version
+
 FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install AWS CLI (pour debug R2)
+# Install system dependencies
 RUN apt-get update && \
-    apt-get install -y curl unzip && \
-    curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" && \
-    unzip awscliv2.zip && \
-    ./aws/install && \
-    rm -rf awscliv2.zip aws && \
-    apt-get clean
+    apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
+# Copy requirements
 COPY requirements.txt .
+
+# Install Python packages
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy app
-COPY app.py .
-
+# Expose HF Spaces port
 EXPOSE 7860
 
-CMD ["python", "app.py"]
+# Set environment variables (will be overridden by HF Spaces)
+ENV MLFLOW_BACKEND_STORE_URI=""
+ENV MLFLOW_ARTIFACT_ROOT=""
+ENV MLFLOW_S3_ENDPOINT_URL=""
+ENV AWS_ACCESS_KEY_ID=""
+ENV AWS_SECRET_ACCESS_KEY=""
+ENV PORT=7860
+
+# Run MLflow server directly (no app.py)
+CMD mlflow server \
+    --host 0.0.0.0 \
+    --port ${PORT} \
+    --backend-store-uri ${MLFLOW_BACKEND_STORE_URI} \
+    --default-artifact-root ${MLFLOW_ARTIFACT_ROOT}

@@ -1,264 +1,83 @@
 ---
-title: Wakee MLflow
-emoji: 🧠
+title: Wakee MLflow Tracking
+emoji: 📊
 colorFrom: blue
-colorTo: green
+colorTo: purple
 sdk: docker
 pinned: false
 license: mit
 ---
 
-# 🚀 MLflow Tracking Server - HuggingFace Spaces
+# 🚀 Wakee MLflow Tracking Server
 
-MLflow tracking server déployé sur HuggingFace Spaces pour le projet Wakee Reloaded.
+MLflow tracking server for the Wakee emotion detection project.
 
-## 📊 Architecture
+## 🔧 Configuration
 
+This Space requires the following environment variables in **Settings**:
+
+### Backend Store (PostgreSQL)
 ```
-GitHub Repository (04_mlflow/)
-    ↓
-GitHub Actions
-    ↓
-HuggingFace Spaces
-    ↓
-MLflow UI: https://your-username-wakee-mlflow.hf.space
+MLFLOW_BACKEND_STORE_URI=postgresql://user:password@host/mlflow_backend?sslmode=require
 ```
 
-## 🎯 Fonctionnalités
-
-- ✅ Tracking des expériences ML
-- ✅ Logging des métriques (accuracy, MAE, etc.)
-- ✅ Versioning des modèles
-- ✅ Storage des artifacts (R2)
-- ✅ Backend PostgreSQL (NeonDB)
-- ✅ Déploiement automatique via GitHub Actions
-
-## 📁 Structure
-
+### Artifact Storage (Cloudflare R2)
 ```
-04_mlflow/
-├── app.py                      # MLflow server
-├── Dockerfile                  # HF Spaces config
-├── requirements.txt            # Dependencies
-├── .github/
-│   └── workflows/
-│       └── deploy-mlflow.yml   # CI/CD
-└── README.md                   # Ce fichier
-```
-
-## 🚀 Setup
-
-### 1. Créer le Space sur HuggingFace
-
-```bash
-# Va sur https://huggingface.co/new-space
-# - Nom : wakee-mlflow
-# - SDK : Docker
-# - Visibility : Public ou Private
-```
-
-### 2. Configurer les secrets GitHub
-
-Dans ton repository GitHub :
-
-```
-Settings → Secrets and variables → Actions → New repository secret
-```
-
-Ajoute :
-- `HF_TOKEN` : Ton HuggingFace token
-- `HF_USERNAME` : Ton username HuggingFace
-
-### 3. Configurer les variables HF Spaces
-
-Dans HuggingFace Spaces Settings :
-
-```bash
-# Backend Store (NeonDB)
-MLFLOW_BACKEND_STORE_URI=postgresql://user:password@host/database
-
-# Artifact Root (Cloudflare R2)
-MLFLOW_ARTIFACT_ROOT=s3://wakee-bucket/mlflow-artifacts/
-
-# R2 Configuration
+MLFLOW_ARTIFACT_ROOT=s3://bucket-name/mlflow-artifacts/
 MLFLOW_S3_ENDPOINT_URL=https://account_id.r2.cloudflarestorage.com
 AWS_ACCESS_KEY_ID=your_r2_access_key
 AWS_SECRET_ACCESS_KEY=your_r2_secret_key
 ```
 
-### 4. Deploy
+## 📊 Usage
 
-```bash
-# Push vers GitHub
-git add 04_mlflow/
-git commit -m "Add MLflow tracking server"
-git push origin main
-
-# GitHub Actions se déclenche automatiquement
-# → Deploy sur HF Spaces
+Once configured, access MLflow UI at:
 ```
-
-### 5. Vérifier
-
-```bash
-# Accède à ton Space
 https://huggingface.co/spaces/your-username/wakee-mlflow
-
-# Tu dois voir l'interface MLflow
 ```
 
-## 🔧 Utilisation depuis Airflow
-
-### Dans DAG 3 (model_retrain.py)
+### From Python
 
 ```python
 import mlflow
 
-# Configure l'URL du MLflow sur HF Spaces
-MLFLOW_TRACKING_URI = "https://your-username-wakee-mlflow.hf.space"
-mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
-mlflow.set_experiment("wakee-model-retrain")
+mlflow.set_tracking_uri("https://your-username-wakee-mlflow.hf.space")
+mlflow.set_experiment("my-experiment")
 
-# Log params
 with mlflow.start_run():
-    mlflow.log_param("learning_rate", 0.001)
-    mlflow.log_metric("accuracy", 0.95)
-    mlflow.pytorch.log_model(model, "model")
-```
-
-### Variables d'environnement Airflow
-
-```yaml
-# docker-compose.yml
-environment:
-  MLFLOW_TRACKING_URI: https://your-username-wakee-mlflow.hf.space
-```
-
-## 📊 Backend Storage
-
-### NeonDB (Metadata)
-```sql
--- MLflow crée automatiquement ses tables
-experiments
-runs
-metrics
-params
-tags
-...
-```
-
-### Cloudflare R2 (Artifacts)
-```
-wakee-bucket/
-└── mlflow-artifacts/
-    ├── 0/
-    │   └── run_id_xxx/
-    │       └── artifacts/
-    └── 1/
-        └── run_id_yyy/
-            └── artifacts/
-```
-
-## 🧪 Test local
-
-```bash
-cd 04_mlflow
-
-# Build
-docker build -t wakee-mlflow .
-
-# Run (avec tes variables)
-docker run -p 7860:7860 \
-  -e MLFLOW_BACKEND_STORE_URI="postgresql://..." \
-  -e MLFLOW_ARTIFACT_ROOT="s3://..." \
-  -e MLFLOW_S3_ENDPOINT_URL="https://..." \
-  -e AWS_ACCESS_KEY_ID="..." \
-  -e AWS_SECRET_ACCESS_KEY="..." \
-  wakee-mlflow
-
-# Accède à http://localhost:7860
-```
-
-## 🔄 Workflow CI/CD
-
-```
-1. Modifie du code dans 04_mlflow/
-   ↓
-2. Push vers GitHub
-   ↓
-3. GitHub Actions détecte les changements
-   ↓
-4. Build & Deploy vers HF Spaces
-   ↓
-5. MLflow accessible sur HF Spaces
-```
-
-## 📈 Métriques trackées
-
-### DAG 3 (Model Retrain)
-```python
-# Hyperparamètres
-- learning_rate
-- batch_size
-- num_epochs
-
-# Métriques training
-- train_loss (par epoch)
-- val_loss (par epoch)
-
-# Métriques évaluation
-- accuracy
-- f1_score
-- mae_boredom
-- mae_confusion
-- mae_engagement
-- mae_frustration
-- mae_global
+    mlflow.log_param("param1", "value1")
+    mlflow.log_metric("metric1", 0.85)
 ```
 
 ## 🐛 Troubleshooting
 
-### Space ne démarre pas
-```bash
-# Vérifie les logs dans HF Spaces
-# Vérifie que MLFLOW_BACKEND_STORE_URI est configuré
+### Space won't start
+
+1. Check all environment variables are set in Settings
+2. Verify PostgreSQL connection string is correct
+3. Verify R2 credentials are valid
+4. Check logs for specific error messages
+
+### Database migration errors
+
+If you see Alembic errors, reset the database:
+
+```sql
+DROP DATABASE mlflow_backend;
+CREATE DATABASE mlflow_backend;
 ```
 
-### Cannot connect to PostgreSQL
-```bash
-# Vérifie que NeonDB est accessible depuis internet
-# Vérifie les credentials
-```
+### Artifacts not saving to R2
 
-### Artifacts not saved
-```bash
-# Vérifie MLFLOW_S3_ENDPOINT_URL
-# Vérifie AWS_ACCESS_KEY_ID et AWS_SECRET_ACCESS_KEY
-# Vérifie que le bucket R2 existe
-```
-
-## 🎯 Avantages de cette architecture
-
-```python
-✅ MLflow accessible depuis n'importe où (pas local)
-✅ Déploiement automatique (GitHub Actions)
-✅ Séparé d'Airflow (indépendant)
-✅ Gratuit (HF Spaces)
-✅ Production-ready
-✅ Versioning via Git
-```
+1. Verify `MLFLOW_ARTIFACT_ROOT` starts with `s3://`
+2. Verify `MLFLOW_S3_ENDPOINT_URL` is correct
+3. Test R2 credentials with boto3
 
 ## 📚 Documentation
 
 - [MLflow Documentation](https://mlflow.org/docs/latest/index.html)
-- [HuggingFace Spaces](https://huggingface.co/docs/hub/spaces)
-- [GitHub Actions](https://docs.github.com/en/actions)
+- [Wakee Project](https://github.com/your-username/wakee-reloaded)
 
-## 🎉 Résultat
+## 📝 License
 
-**Tu as maintenant un MLflow tracking server en production sur HF Spaces ! 🚀**
-
-**URL finale :**
-```
-https://your-username-wakee-mlflow.hf.space
-```
+MIT

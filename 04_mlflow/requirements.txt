@@ -1,22 +1,14 @@
-# # MLflow Tracking Server Requirements
+# MLflow Tracking Server Requirements
+# Minimal & Working version
 
-# huggingface-hub
-# requests
-# mlflow
-# psycopg2-binary
-# boto3
-# python-dotenv
+# MLflow
+mlflow==2.10.2
 
-boto3
-pandas 
-gunicorn 
-streamlit 
-scikit-learn 
-matplotlib 
-seaborn 
-plotly
-mlflow
-psycopg2-binary
-huggingface-hub
-python-dotenv
-requests
+# Database (PostgreSQL)
+psycopg2-binary==2.9.9
+
+# S3/R2 Storage
+boto3==1.34.34
+
+# Additional dependencies
+packaging

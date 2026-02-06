@@ -1,0 +1,83 @@
+name: Deploy MLflow to HuggingFace Spaces
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '04_mlflow/**'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install HuggingFace CLI
+        run: |
+          pip install huggingface_hub
+      
+      - name: Login to HuggingFace
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          huggingface-cli login --token $HF_TOKEN
+      
+      - name: Push to HuggingFace Spaces
+        env:
+          HF_USERNAME: ${{ secrets.HF_USERNAME }}
+          SPACE_NAME: wakee-mlflow
+        run: |
+          cd 04_mlflow
+          
+          # Clone space if exists, otherwise create
+          if huggingface-cli repo info spaces/$HF_USERNAME/$SPACE_NAME > /dev/null 2>&1; then
+            echo "✅ Space exists, cloning..."
+            git clone https://huggingface.co/spaces/$HF_USERNAME/$SPACE_NAME space_repo
+          else
+            echo "🆕 Creating new space..."
+            huggingface-cli repo create $SPACE_NAME --type space --space_sdk docker
+            git clone https://huggingface.co/spaces/$HF_USERNAME/$SPACE_NAME space_repo
+          fi
+          
+          # Copy files (NO app.py)
+          cp Dockerfile space_repo/
+          cp requirements.txt space_repo/
+          cp README.md space_repo/
+          cp .dockerignore space_repo/ || true
+          
+          # Remove app.py if it exists in space
+          rm -f space_repo/app.py
+          
+          # Commit and push
+          cd space_repo
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add .
+          git add -u  # Stage deletions
+          git commit -m "Deploy MLflow (no app.py) from GitHub Actions" || echo "No changes"
+          git push
+      
+      - name: Deployment Summary
+        run: |
+          echo "========================================"
+          echo "✅ MLflow deployed successfully!"
+          echo "========================================"
+          echo "📊 Space URL: https://huggingface.co/spaces/${{ secrets.HF_USERNAME }}/wakee-mlflow"
+          echo ""
+          echo "📋 Files deployed:"
+          echo "  - Dockerfile"
+          echo "  - requirements.txt"
+          echo "  - README.md"
+          echo "  - .dockerignore"
+          echo ""
+          echo "⚠️  No app.py (MLflow runs directly)"
+          echo "========================================"
