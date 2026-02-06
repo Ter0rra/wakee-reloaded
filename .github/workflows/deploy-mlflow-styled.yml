@@ -32,11 +32,9 @@ jobs:
           echo "✅ HuggingFace CLI installed"
       
       - name: 🔐 Login to HuggingFace
-        env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           echo "🔐 Authenticating with HuggingFace..."
-          huggingface-cli login --token $HF_TOKEN
+          huggingface-cli login --token ${{ secrets.HF_TOKEN }}
           echo "✅ Authentication successful"
       
       - name: 🚀 Deploy to HuggingFace Spaces
