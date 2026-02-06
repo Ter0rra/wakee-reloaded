@@ -28,7 +28,7 @@ jobs:
       - name: 📦 Install HuggingFace CLI
         run: |
           echo "📥 Installing huggingface_hub..."
-          pip install --quiet huggingface_hub
+          pip install huggingface_hub
           echo "✅ HuggingFace CLI installed"
       
       - name: 🔐 Login to HuggingFace
