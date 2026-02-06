@@ -45,9 +45,9 @@ jobs:
           
           # Configuration
           HF_TOKEN = os.environ['HF_TOKEN']
-          HF_USERNAME = Terorra
-          SPACE_NAME = wakee-mlflow
-          REPO_ID = Terorra/wakee-mlflow
+          HF_USERNAME = 'Terorra'
+          SPACE_NAME = 'wakee-mlflow'
+          REPO_ID = 'Terorra/wakee-mlflow'
           
           print("=" * 64)
           print("🚀 DEPLOYING MLFLOW TO HUGGINGFACE SPACES")
