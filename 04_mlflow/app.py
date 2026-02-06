@@ -6,7 +6,7 @@ import mlflow
 import os
 
 # Configure
-MLFLOW_TRACKING_URI = "https://your-username-wakee-mlflow.hf.space"
+MLFLOW_TRACKING_URI = "https://Terorra-wakee-mlflow.hf.space"
 mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
 
 print(f"🧪 Testing MLflow: {MLFLOW_TRACKING_URI}")
