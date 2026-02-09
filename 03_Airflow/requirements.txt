@@ -29,6 +29,7 @@ boto3
 
 # HuggingFace
 huggingface-hub
+pygithub
 # transformers
 
 # API Client

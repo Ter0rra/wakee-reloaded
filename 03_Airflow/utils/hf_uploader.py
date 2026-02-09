@@ -3,7 +3,7 @@ HuggingFace Uploader
 Upload model.bin et model.onnx vers HF Model Hub
 """
 
-from huggingface_hub import HfApi, upload_file
+from huggingface_hub import HfApi, create_repo, upload_file
 import os
 from typing import Optional
 
