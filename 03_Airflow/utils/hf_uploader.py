@@ -3,10 +3,8 @@ HuggingFace Uploader
 Upload model.bin et model.onnx vers HF Model Hub
 """
 
-from huggingface_hub import HfApi, create_repo, upload_file
+from huggingface_hub import HfApi, upload_file
 import os
-import shutil
-import tempfile
 from typing import Optional
 
 # ============================================================================
@@ -27,7 +25,7 @@ def upload_model_to_hf(
     commit_message: Optional[str] = None
 ) -> dict:
     """
-    Upload model.bin et model.onnx vers HuggingFace Hub avec Git LFS forcé
+    Upload model.bin et model.onnx vers HuggingFace Hub
     
     Args:
         model_bin_path (str): Chemin local du model.bin
@@ -38,7 +36,7 @@ def upload_model_to_hf(
     Returns:
         dict: URLs des fichiers uploadés
     """
-    print("🚀 Uploading models to HuggingFace Hub (with Git LFS)...")
+    print("🚀 Uploading models to HuggingFace Hub...")
     print(f"   Repository: {HF_MODEL_REPO}")
     print(f"   Version: {version_name}")
     
@@ -48,13 +46,13 @@ def upload_model_to_hf(
     # Créer l'API client
     api = HfApi(token=HF_TOKEN)
     
-    # Vérifier que le repo existe
+    # Vérifier que le repo existe (sinon créer)
     try:
         api.repo_info(repo_id=HF_MODEL_REPO, repo_type="model")
         print(f"✅ Repository exists: {HF_MODEL_REPO}")
     except Exception:
-        print(f"⚠️  Repository not found, creating: {HF_MODEL_REPO}")
-        create_repo(repo_id=HF_MODEL_REPO, repo_type="model", token=HF_TOKEN, exist_ok=True)
+        print(f"⚠️  Repository not found, have to create: {HF_MODEL_REPO}")
+        # create_repo(repo_id=HF_MODEL_REPO, repo_type="model", token=HF_TOKEN)
     
     # Message de commit par défaut
     if commit_message is None:
@@ -62,45 +60,41 @@ def upload_model_to_hf(
     
     uploaded_files = {}
     
-    # ✅ SOLUTION 1 : Utiliser upload_folder avec un temp dir
-    # Ceci force TOUJOURS Git LFS
-    print("\n📦 Preparing files for upload with Git LFS...")
+    # 1. Upload model.bin
+    print("\n📦 Uploading pytorch_model.bin...")
+    try:
+        url_bin = api.upload_file(
+            path_or_fileobj=model_bin_path,
+            path_in_repo="pytorch_model.bin",
+            repo_id=HF_MODEL_REPO,
+            repo_type="model",
+            token=HF_TOKEN,
+            commit_message=commit_message
+        )
+        print(f"✅ model.bin uploaded: {url_bin}")
+        uploaded_files['model_bin_url'] = url_bin
+    except Exception as e:
+        print(f"❌ Failed to upload model.bin: {e}")
+        raise
     
-    # Créer un dossier temporaire
-    with tempfile.TemporaryDirectory() as temp_dir:
-        # Copier les fichiers dans le temp dir
-        temp_model_bin = os.path.join(temp_dir, "pytorch_model.bin")
-        temp_model_onnx = os.path.join(temp_dir, "model.onnx")
-        
-        shutil.copy(model_bin_path, temp_model_bin)
-        shutil.copy(model_onnx_path, temp_model_onnx)
-        
-        print(f"   Copied pytorch_model.bin ({os.path.getsize(temp_model_bin) / 1e6:.2f} MB)")
-        print(f"   Copied model.onnx ({os.path.getsize(temp_model_onnx) / 1e6:.2f} MB)")
-        
-        # ✅ Upload avec upload_folder (force Git LFS)
-        print("\n📤 Uploading folder with Git LFS...")
-        try:
-            api.upload_folder(
-                folder_path=temp_dir,
-                repo_id=HF_MODEL_REPO,
-                repo_type="model",
-                token=HF_TOKEN,
-                commit_message=commit_message,
-                # ✅ CRITIQUE : ignore_patterns pour ne pas uploader des fichiers cachés
-                ignore_patterns=[".*", "__pycache__"],
-            )
-            print(f"✅ Models uploaded with Git LFS")
-            
-            # Construire les URLs
-            uploaded_files['model_bin_url'] = f"https://huggingface.co/{HF_MODEL_REPO}/resolve/main/pytorch_model.bin"
-            uploaded_files['model_onnx_url'] = f"https://huggingface.co/{HF_MODEL_REPO}/resolve/main/model.onnx"
-            
-        except Exception as e:
-            print(f"❌ Failed to upload models: {e}")
-            raise
+    # 2. Upload model.onnx
+    print("\n📦 Uploading model.onnx...")
+    try:
+        url_onnx = api.upload_file(
+            path_or_fileobj=model_onnx_path,
+            path_in_repo="model.onnx",
+            repo_id=HF_MODEL_REPO,
+            repo_type="model",
+            token=HF_TOKEN,
+            commit_message=commit_message
+        )
+        print(f"✅ model.onnx uploaded: {url_onnx}")
+        uploaded_files['model_onnx_url'] = url_onnx
+    except Exception as e:
+        print(f"❌ Failed to upload model.onnx: {e}")
+        raise
     
-    # Upload README avec version info
+    # 3. Upload README avec version info (optionnel)
     print("\n📄 Updating README...")
     try:
         readme_content = generate_readme(version_name)
@@ -108,7 +102,7 @@ def upload_model_to_hf(
         with open(readme_path, 'w') as f:
             f.write(readme_content)
         
-        api.upload_file(
+        url_readme = upload_file(
             path_or_fileobj=readme_path,
             path_in_repo="README.md",
             repo_id=HF_MODEL_REPO,
@@ -117,11 +111,11 @@ def upload_model_to_hf(
             commit_message=f"Update README for {version_name}"
         )
         print(f"✅ README.md updated")
-        uploaded_files['readme_url'] = f"https://huggingface.co/{HF_MODEL_REPO}/resolve/main/README.md"
+        uploaded_files['readme_url'] = url_readme
     except Exception as e:
         print(f"⚠️  Failed to update README: {e}")
     
-    print("\n🎉 All files uploaded successfully with Git LFS!")
+    print("\n🎉 All files uploaded successfully!")
     
     return uploaded_files
 
