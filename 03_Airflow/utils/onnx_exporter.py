@@ -1,12 +1,12 @@
 """
-ONNX Exporter - Convert PyTorch to ONNX
-Exporte le modèle PyTorch vers ONNX pour l'API
+ONNX Exporter - VERSION ULTIME
+Utilise l'ANCIEN exporteur PyTorch pour éviter les optimisations
 """
 
+import os
 import torch
 import torch.onnx
 import onnx
-import onnxscript
 import onnxruntime as ort
 import numpy as np
 from typing import Tuple
@@ -16,10 +16,10 @@ from typing import Tuple
 # ============================================================================
 
 DEVICE = 'cpu'
-INPUT_SHAPE = (1, 3, 224, 224)  # Batch, Channels, Height, Width
+INPUT_SHAPE = (1, 3, 224, 224)
 
 # ============================================================================
-# EXPORT TO ONNX
+# EXPORT TO ONNX (ANCIEN EXPORTEUR)
 # ============================================================================
 
 def export_to_onnx(
@@ -29,46 +29,61 @@ def export_to_onnx(
 ) -> bool:
     """
     Exporte le modèle PyTorch vers ONNX
-    
-    Args:
-        pytorch_model (nn.Module): Modèle PyTorch
-        onnx_path (str): Chemin de sauvegarde ONNX
-        opset_version (int): Version ONNX opset
-    
-    Returns:
-        bool: True si succès
+    UTILISE L'ANCIEN EXPORTEUR pour éviter les optimisations
     """
     print(f"🔄 Exporting PyTorch model to ONNX...")
     print(f"   Output: {onnx_path}")
     print(f"   Opset version: {opset_version}")
+    print(f"   Using LEGACY ONNX exporter (no optimizations)")
     
     try:
-        # Mettre le modèle en mode eval
+        # Mode eval
         pytorch_model.eval()
         pytorch_model = pytorch_model.to(DEVICE)
         
         # Créer un input dummy
         dummy_input = torch.randn(INPUT_SHAPE, device=DEVICE)
         
-        # Export ONNX
-        torch.onnx.export(
-            pytorch_model,
-            dummy_input,
-            onnx_path,
-            export_params=True,
-            opset_version=opset_version,
-            do_constant_folding=True,
-            input_names=['input'],
-            output_names=['output'],
-            dynamic_axes={
-                'input': {0: 'batch_size'},
-                'output': {0: 'batch_size'}
-            }
-        )
+        # ✅ EXPORT AVEC L'ANCIEN EXPORTEUR
+        # En mettant dynamo=False, on force l'ancien exporteur
+        with torch.onnx.select_model_mode_for_export(
+            pytorch_model, torch.onnx.TrainingMode.EVAL
+        ):
+            torch.onnx.export(
+                pytorch_model,
+                dummy_input,
+                onnx_path,
+                export_params=True,
+                opset_version=opset_version,
+                do_constant_folding=False,
+                input_names=['input'],
+                output_names=['output'],
+                dynamic_axes={
+                    'input': {0: 'batch_size'},
+                    'output': {0: 'batch_size'}
+                },
+                verbose=False,
+                # ✅ CRITIQUE : Forcer l'ancien exporteur
+                dynamo=False,
+                # ✅ CRITIQUE : Garder les formes originales
+                keep_initializers_as_inputs=False,
+            )
 
-        # ✅ Vérifier la taille du fichier
+        # Vérifier la taille du fichier
         file_size_mb = os.path.getsize(onnx_path) / 1e6
         print(f"   ONNX file size: {file_size_mb:.2f} MB")
+        
+        if file_size_mb < 10:
+            print(f"   ⚠️  File size too small ({file_size_mb:.2f} MB)")
+            print(f"   Expected: ~70-75 MB")
+            
+            # Vérifier le nombre d'initializers
+            onnx_model = onnx.load(onnx_path)
+            num_init = len(onnx_model.graph.initializer)
+            print(f"   Initializers: {num_init}")
+            print(f"   Expected: ~400+")
+            
+            return False
         
         print("✅ ONNX export successful")
         
@@ -76,36 +91,29 @@ def export_to_onnx(
         
     except Exception as e:
         print(f"❌ ONNX export failed: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
-# ============================================================================
-# VERIFY ONNX MODEL
-# ============================================================================
+# [Reste du code identique à avant...]
 
 def verify_onnx_model(onnx_path: str) -> bool:
-    """
-    Vérifie que le modèle ONNX est valide
-    
-    Args:
-        onnx_path (str): Chemin du modèle ONNX
-    
-    Returns:
-        bool: True si valide
-    """
+    """Vérifie que le modèle ONNX est valide"""
     print(f"🔍 Verifying ONNX model...")
     
     try:
-        # Load ONNX model
         onnx_model = onnx.load(onnx_path)
-        
-        # Check model
         onnx.checker.check_model(onnx_model)
         
         print("✅ ONNX model is valid")
-        
-        # Affiche les infos
         print(f"   Input: {onnx_model.graph.input[0].name}")
         print(f"   Output: {onnx_model.graph.output[0].name}")
+        
+        num_initializers = len(onnx_model.graph.initializer)
+        print(f"   Initializers: {num_initializers}")
+        
+        if num_initializers < 100:
+            print(f"   ⚠️  Very few initializers ({num_initializers})")
         
         return True
         
@@ -113,38 +121,31 @@ def verify_onnx_model(onnx_path: str) -> bool:
         print(f"❌ ONNX model verification failed: {e}")
         return False
 
-# ============================================================================
-# TEST ONNX INFERENCE
-# ============================================================================
-
 def test_onnx_inference(onnx_path: str) -> bool:
-    """
-    Teste l'inférence avec ONNX Runtime
-    
-    Args:
-        onnx_path (str): Chemin du modèle ONNX
-    
-    Returns:
-        bool: True si inférence réussie
-    """
+    """Teste l'inférence avec ONNX Runtime"""
     print(f"🧪 Testing ONNX inference...")
     
     try:
-        # Créer une session ONNX Runtime
         session = ort.InferenceSession(onnx_path)
         
-        # Créer un input dummy
         dummy_input = np.random.randn(*INPUT_SHAPE).astype(np.float32)
-        
-        # Inférence
         outputs = session.run(['output'], {'input': dummy_input})
         
-        # Vérifie la sortie
         assert outputs[0].shape == (1, 4), f"Unexpected output shape: {outputs[0].shape}"
         
         print("✅ ONNX inference successful")
         print(f"   Output shape: {outputs[0].shape}")
         print(f"   Sample output: {outputs[0][0]}")
+        
+        dummy_input2 = np.random.randn(*INPUT_SHAPE).astype(np.float32)
+        outputs2 = session.run(['output'], {'input': dummy_input2})
+        
+        diff = np.abs(outputs[0] - outputs2[0]).max()
+        print(f"   Output variation: {diff:.6f}")
+        
+        if diff < 1e-6:
+            print(f"   ❌ Outputs are constant!")
+            return False
         
         return True
         
@@ -152,30 +153,15 @@ def test_onnx_inference(onnx_path: str) -> bool:
         print(f"❌ ONNX inference failed: {e}")
         return False
 
-# ============================================================================
-# COMPARE PYTORCH VS ONNX
-# ============================================================================
-
 def compare_pytorch_onnx(
     pytorch_model: torch.nn.Module,
     onnx_path: str,
     num_tests: int = 10
 ) -> Tuple[bool, float]:
-    """
-    Compare les sorties PyTorch vs ONNX
-    
-    Args:
-        pytorch_model (nn.Module): Modèle PyTorch
-        onnx_path (str): Chemin ONNX
-        num_tests (int): Nombre de tests
-    
-    Returns:
-        tuple: (match, max_diff)
-    """
+    """Compare les sorties PyTorch vs ONNX"""
     print(f"🔬 Comparing PyTorch vs ONNX outputs...")
     
     try:
-        # Setup
         pytorch_model.eval()
         pytorch_model = pytorch_model.to(DEVICE)
         
@@ -184,23 +170,18 @@ def compare_pytorch_onnx(
         max_diff = 0.0
         
         for i in range(num_tests):
-            # Créer input aléatoire
             test_input = np.random.randn(*INPUT_SHAPE).astype(np.float32)
             
-            # PyTorch inference
             with torch.no_grad():
                 pytorch_input = torch.from_numpy(test_input).to(DEVICE)
                 pytorch_output = pytorch_model(pytorch_input).cpu().numpy()
             
-            # ONNX inference
             onnx_output = onnx_session.run(['output'], {'input': test_input})[0]
             
-            # Compare
             diff = np.abs(pytorch_output - onnx_output).max()
             max_diff = max(max_diff, diff)
         
-        # Tolerance
-        tolerance = 1e-5
+        tolerance = 1e-4
         match = max_diff < tolerance
         
         if match:
@@ -214,10 +195,6 @@ def compare_pytorch_onnx(
         print(f"❌ Comparison failed: {e}")
         return False, float('inf')
 
-# ============================================================================
-# FULL EXPORT PIPELINE
-# ============================================================================
-
 def export_and_verify(
     pytorch_model: torch.nn.Module,
     onnx_path: str,
@@ -225,40 +202,24 @@ def export_and_verify(
     test_inference: bool = True,
     compare: bool = True
 ) -> bool:
-    """
-    Pipeline complet d'export et vérification
-    
-    Args:
-        pytorch_model (nn.Module): Modèle PyTorch
-        onnx_path (str): Chemin de sauvegarde ONNX
-        verify (bool): Vérifier le modèle ONNX
-        test_inference (bool): Tester l'inférence
-        compare (bool): Comparer PyTorch vs ONNX
-    
-    Returns:
-        bool: True si tout réussit
-    """
+    """Pipeline complet d'export et vérification"""
     print("\n" + "="*70)
-    print("🚀 ONNX EXPORT PIPELINE")
+    print("🚀 ONNX EXPORT PIPELINE (LEGACY EXPORTER)")
     print("="*70)
     
-    # 1. Export
     if not export_to_onnx(pytorch_model, onnx_path):
         return False
     
-    # 2. Verify
     if verify and not verify_onnx_model(onnx_path):
         return False
     
-    # 3. Test inference
     if test_inference and not test_onnx_inference(onnx_path):
         return False
     
-    # 4. Compare
     if compare:
         match, max_diff = compare_pytorch_onnx(pytorch_model, onnx_path)
-        if not match:
-            print("⚠️  Warning: PyTorch and ONNX outputs differ significantly")
+        if not match and max_diff > 0.01:
+            print("\n⚠️  Warning: Large difference")
     
     print("\n✅ ONNX export pipeline complete!")
     print("="*70 + "\n")

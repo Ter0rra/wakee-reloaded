@@ -1,167 +1,190 @@
 """
-Conversion ONNX → PyTorch (Python 3.11)
-Ton bébé CNN reste en ONNX pour l'API (rapide)
-PyTorch sera utilisé uniquement pour le réentraînement
+CRÉATION .BIN CORRECT depuis ton model.onnx ORIGINAL
+Utilise onnx2torch OU fallback intelligent
 """
 
 import torch
+from torchvision import models
 import torch.nn as nn
-import onnx
-from pathlib import Path
-import json
-import sys
+import onnxruntime as ort
+import numpy as np
+from huggingface_hub import HfApi
+import os
 
-# Vérification Python 3.11
-if sys.version_info < (3, 11):
-    print(f"❌ Python 3.11+ requis, version actuelle : {sys.version}")
-    sys.exit(1)
-
-print(f"✅ Python version : {sys.version.split()[0]}\n")
+print("=" * 70)
+print("🔧 CRÉATION PYTORCH_MODEL.BIN CORRECT")
+print("=" * 70 + "\n")
 
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
 
-ONNX_MODEL_PATH = "../00_wakee/model_legacy/daisee_model.onnx"
-OUTPUT_PYTORCH_PATH = "../05_scripts/pytorch_model.bin"
-# HF_USERNAME = "Terorra"  # 👈 TON username HuggingFace
-# MODEL_NAME = "wakee-reloaded"
-# REPO_ID = f"{HF_USERNAME}/{MODEL_NAME}"
+ORIGINAL_ONNX_PATH = "../00_wakee/model_legacy/daisee_model.onnx"  # ← TON ONNX LOCAL
+OUTPUT_BIN_PATH = "pytorch_model_CORRECT.bin"
 HF_REPO_ID = "Terorra/wakee-reloaded"
 
+NUM_CLASSES = 4
+DEVICE = 'cpu'
+
 # ============================================================================
-# MÉTHODE : Recréation architecture PyTorch (compatible avec ton CNN)
+# MÉTHODE 1 : onnx2torch (IDÉAL)
 # ============================================================================
 
-print("=" * 70)
-print("🏗️  RECRÉATION ARCHITECTURE PYTORCH (Python 3.11)")
-print("=" * 70 + "\n")
-
-print("💡 Stratégie : On recrée l'architecture EfficientNet B4")
-print("   qui correspond à ton modèle ONNX (ton bébé !)\n")
+print("🔄 Tentative conversion avec onnx2torch...\n")
 
 try:
-    from torchvision.models import efficientnet_b4, EfficientNet_B4_Weights
+    from onnx2torch import convert
     
-    class WakeeModel(nn.Module):
-        """
-        EfficientNet B4 pour multi-label regression
-        Architecture identique au CNN de Terorra 👶
-        Python 3.11
-        """
-        
-        def __init__(self, pretrained: bool = True):
-            super().__init__()
-            
-            print("🔧 Construction du modèle...")
-            
-            # Base EfficientNet B4 (comme ton bébé)
-            if pretrained:
-                weights = EfficientNet_B4_Weights.IMAGENET1K_V1
-                self.backbone = efficientnet_b4(weights=weights)
-                print("   ✅ Backbone chargé (poids ImageNet)")
-            else:
-                self.backbone = efficientnet_b4(weights=None)
-                print("   ✅ Backbone créé (sans poids)")
-            
-            # Remplace classifier (4 outputs comme ton CNN)
-            in_features = self.backbone.classifier[1].in_features  # 1792
-            
-            self.backbone.classifier = nn.Sequential(
-                nn.Dropout(0.4),
-                nn.Linear(in_features, 512),
-                nn.ReLU(),
-                nn.Dropout(0.3),
-                nn.Linear(512, 4)  # boredom, confusion, engagement, frustration
-            )
-            print("   ✅ Classifier adapté (4 outputs)\n")
-        
-        def forward(self, x: torch.Tensor) -> torch.Tensor:
-            return self.backbone(x)
+    pytorch_model = convert(ORIGINAL_ONNX_PATH)
+    pytorch_model.eval()
     
-    # Crée le modèle
-    print("🏗️  Instanciation du modèle...")
-    model = WakeeModel(pretrained=True)
-    print("✅ Modèle créé avec succès !\n")
+    print("✅ Conversion onnx2torch réussie !")
     
-    # Test inference
-    print("🧪 Test d'inférence (Python 3.11)...")
-    dummy_input = torch.randn(1, 3, 224, 224)
+    # Test
     with torch.no_grad():
-        output = model(dummy_input)
+        test1 = torch.randn(1, 3, 224, 224)
+        test2 = torch.randn(1, 3, 224, 224)
+        out1 = pytorch_model(test1)
+        out2 = pytorch_model(test2)
+        diff = torch.abs(out1 - out2).max().item()
+        print(f"   Output variation: {diff:.4f}")
     
-    print(f"✅ Output shape : {output.shape}")
-    print(f"   Expected : torch.Size([1, 4])\n")
+    # Save
+    torch.save(pytorch_model.state_dict(), OUTPUT_BIN_PATH)
     
-    if output.shape != torch.Size([1, 4]):
-        raise ValueError(f"Shape incorrecte ! {output.shape}")
+    file_size_mb = os.path.getsize(OUTPUT_BIN_PATH) / 1e6
+    print(f"   File size: {file_size_mb:.2f} MB")
     
-    # Save PyTorch weights
-    print(f"💾 Sauvegarde vers : {OUTPUT_PYTORCH_PATH}")
-    torch.save(model.state_dict(), OUTPUT_PYTORCH_PATH)
-    print("✅ pytorch_model.bin sauvegardé\n")
+    if file_size_mb < 50:
+        raise ValueError("File too small!")
     
-    # Upload to HF Hub
-    print("🚀 Upload vers HuggingFace Hub...")
-    from huggingface_hub import HfApi
-    api = HfApi()
-    
-    api.upload_file(
-        path_or_fileobj=OUTPUT_PYTORCH_PATH,
-        path_in_repo="pytorch_model.bin",
-        repo_id=HF_REPO_ID,
-        repo_type="model",
-        commit_message="Add PyTorch architecture (Python 3.11, ImageNet weights)"
-    )
-    print("✅ pytorch_model.bin uploadé\n")
-    
-    # Update config
-    print("📝 Mise à jour du config.json...")
-    from huggingface_hub import hf_hub_download
-    
-    config_path = hf_hub_download(
-        repo_id=HF_REPO_ID,
-        filename="config.json"
-    )
-    
-    with open(config_path, "r") as f:
-        config = json.load(f)
-    
-    config["pytorch_available"] = True
-    config["pytorch_weights_source"] = "ImageNet + random classifier"
-    config["pytorch_note"] = "Architecture identique au modèle ONNX. Weights ImageNet pour backbone, classifier initialisé aléatoirement. À réentraîner avec données DAiSEE + collecte."
-    
-    config_updated_path = Path("/tmp/config_updated.json")
-    config_updated_path.write_text(json.dumps(config, indent=2), encoding='utf-8')
-    
-    api.upload_file(
-        path_or_fileobj=str(config_updated_path),
-        path_in_repo="config.json",
-        repo_id=HF_REPO_ID,
-        repo_type="model",
-        commit_message="Update config with PyTorch info"
-    )
-    
-    config_updated_path.unlink()
-    print("✅ config.json mis à jour\n")
-    
-    print("=" * 70)
-    print("🎉 CONVERSION RÉUSSIE ! (Python 3.11)")
-    print("=" * 70)
-    print("\n✅ Architecture PyTorch créée avec succès !")
-    print("✅ Compatible avec ton bébé CNN (ONNX)")
-    print("\n📝 Rappel important :")
-    print("   - API continue d'utiliser model.onnx (TON modèle entraîné)")
-    print("   - pytorch_model.bin sert pour le réentraînement futur")
-    print("   - Les poids PyTorch actuels = ImageNet (backbone) + random (classifier)")
-    print("   - Le réentraînement va fine-tuner avec tes données\n")
-    
-    print("📝 Prochaine étape : init_db.py (demain matin)\n")
-    
+    print("\n✅ .bin créé avec onnx2torch !\n")
+    USE_ONNX2TORCH = True
+
 except Exception as e:
-    print(f"\n❌ ERREUR : {e}\n")
-    print("💡 Pas de panique ! Solutions :")
-    print("   1. Vérifie que torch et torchvision sont bien installés (Python 3.11)")
-    print("   2. Si ça persiste, on garde ton ONNX et on simule le retrain")
-    print("   3. Ton bébé CNN continuera de fonctionner normalement !\n")
-    sys.exit(1)
+    print(f"⚠️  onnx2torch failed: {e}\n")
+    USE_ONNX2TORCH = False
+
+# ============================================================================
+# MÉTHODE 2 : Fallback - ONNX comme référence (SI onnx2torch rate)
+# ============================================================================
+
+if not USE_ONNX2TORCH:
+    print("🔄 Fallback : Création .bin avec ONNX comme référence...\n")
+    
+    # 1. Tester l'ONNX
+    print("📊 Test du modèle ONNX original...")
+    session = ort.InferenceSession(ORIGINAL_ONNX_PATH)
+    
+    test_input = np.random.randn(1, 3, 224, 224).astype(np.float32)
+    onnx_output = session.run(['output'], {'input': test_input})[0]
+    
+    print(f"   ONNX output: {onnx_output[0]}")
+    print(f"   ✅ ONNX fonctionne\n")
+    
+    # 2. Créer architecture PyTorch
+    print("🏗️  Création architecture PyTorch...")
+    model = models.efficientnet_b4(weights=None)
+    model.classifier[1] = nn.Linear(model.classifier[1].in_features, NUM_CLASSES)
+    
+    # 3. Stratégie : Utiliser l'ONNX dans le DAG
+    print("\n💡 RECOMMANDATION :")
+    print("   Comme onnx2torch ne marche pas, voici ce qu'il faut faire :\n")
+    print("   1. NE PAS uploader de pytorch_model.bin")
+    print("   2. Upload seulement ton model.onnx ORIGINAL")
+    print("   3. Modifier le DAG pour charger ONNX au lieu de .bin\n")
+    
+    # 4. Créer quand même un .bin "bootstrap" pour le DAG
+    print("🔧 Création .bin bootstrap (ImageNet backbone)...")
+    from torchvision.models import EfficientNet_B4_Weights
+    pretrained_model = models.efficientnet_b4(weights=EfficientNet_B4_Weights.IMAGENET1K_V1)
+    
+    # Copier backbone
+    model_dict = model.state_dict()
+    pretrained_dict = pretrained_model.state_dict()
+    
+    pretrained_dict_filtered = {
+        k: v for k, v in pretrained_dict.items() 
+        if k in model_dict and 'classifier' not in k
+    }
+    
+    model_dict.update(pretrained_dict_filtered)
+    model.load_state_dict(model_dict)
+    
+    # ⚠️  IMPORTANT : Freeze le backbone pour le fine-tuning
+    print("   ⚠️  ATTENTION : Ce .bin a ImageNet backbone + classifier random")
+    print("   → Le DAG devra FREEZE le backbone et ne fine-tuner QUE le classifier\n")
+    
+    torch.save(model.state_dict(), OUTPUT_BIN_PATH)
+    print(f"✅ .bin bootstrap créé\n")
+
+# ============================================================================
+# UPLOAD
+# ============================================================================
+
+print("🚀 Upload vers HuggingFace Hub...\n")
+
+api = HfApi()
+
+# Upload le .bin
+api.upload_file(
+    path_or_fileobj=OUTPUT_BIN_PATH,
+    path_in_repo="pytorch_model.bin",
+    repo_id=HF_REPO_ID,
+    repo_type="model",
+    commit_message="Fix pytorch_model.bin - Use ONNX weights or ImageNet bootstrap"
+)
+
+print("✅ pytorch_model.bin uploadé\n")
+
+# Upload aussi l'ONNX original
+print("📤 Upload model.onnx original...")
+
+api.upload_file(
+    path_or_fileobj=ORIGINAL_ONNX_PATH,
+    path_in_repo="model.onnx",
+    repo_id=HF_REPO_ID,
+    repo_type="model",
+    commit_message="Restore original trained ONNX model"
+)
+
+print("✅ model.onnx original restauré\n")
+
+print("=" * 70)
+print("🎉 DONE !")
+print("=" * 70)
+print("""
+PROCHAINES ÉTAPES :
+
+1. ✅ pytorch_model.bin fixé (ou bootstrap)
+2. ✅ model.onnx original restauré
+
+3. 🔧 MODIFIER LE DAG pour FREEZE le backbone :
+
+Dans model_trainer.py, ajoute avant le training :
+
+```python
+# Freeze le backbone (ne fine-tune QUE le classifier)
+for name, param in model.named_parameters():
+    if 'classifier' not in name:
+        param.requires_grad = False
+
+# Vérifier
+trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+print(f"Paramètres entraînables : {trainable:,}")
+```
+
+4. 🔧 AUGMENTER learning rate pour le classifier :
+
+```python
+LEARNING_RATE = 1e-3  # Plus élevé car on train juste le classifier
+NUM_EPOCHS = 10
+```
+
+5. 🔧 Relancer le DAG
+
+RÉSULTAT ATTENDU :
+- Backbone gelé → Garde les features ImageNet
+- Classifier fine-tuné → Apprend tes émotions
+- Pas de catastrophe sur les prédictions
+""")

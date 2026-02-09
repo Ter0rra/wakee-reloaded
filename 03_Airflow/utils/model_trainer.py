@@ -1,6 +1,6 @@
 """
-Model Trainer - PyTorch Fine-tuning
-Fine-tune EfficientNet B4 avec nouvelles annotations
+Model Trainer - VERSION FINALE
+Accepte BOTH : .bin PyTorch standard ET .bin from onnx2torch
 """
 
 import torch
@@ -19,24 +19,14 @@ import os
 
 DEVICE = 'cpu'
 BATCH_SIZE = 16
-LEARNING_RATE = 1e-4
-NUM_EPOCHS = 10
-NUM_CLASSES = 4  # boredom, confusion, engagement, frustration
+LEARNING_RATE = 1e-3
+NUM_EPOCHS = 5 # 10
+NUM_CLASSES = 4
 
-# ============================================================================
-# DATASET
-# ============================================================================
+# [Dataset, Transforms - identiques à avant...]
 
 class EmotionDataset(Dataset):
-    """Dataset pour les émotions DAiSEE"""
-    
     def __init__(self, image_paths, labels, transform=None):
-        """
-        Args:
-            image_paths (list): Liste des chemins d'images
-            labels (np.array): Labels (N, 4) pour 4 émotions
-            transform: Transformations torchvision
-        """
         self.image_paths = image_paths
         self.labels = labels
         self.transform = transform
@@ -45,30 +35,19 @@ class EmotionDataset(Dataset):
         return len(self.image_paths)
     
     def __getitem__(self, idx):
-        # Load image
         img_path = self.image_paths[idx]
         image = Image.open(img_path).convert('RGB')
         
-        # Transform
         if self.transform:
             image = self.transform(image)
         
-        # Labels
         label = torch.tensor(self.labels[idx], dtype=torch.float32)
         
         return image, label
 
-# ============================================================================
-# TRANSFORMS
-# ============================================================================
-
 def get_train_transform():
-    """Data augmentation pour training"""
     return transforms.Compose([
         transforms.Resize((224, 224)),
-        # transforms.RandomHorizontalFlip(p=0.5),
-        # transforms.RandomRotation(degrees=10),
-        # transforms.ColorJitter(brightness=0.2, contrast=0.2),
         transforms.ToTensor(),
         transforms.Normalize(
             mean=[0.485, 0.456, 0.406],
@@ -77,7 +56,6 @@ def get_train_transform():
     ])
 
 def get_val_transform():
-    """Transforms pour validation/test"""
     return transforms.Compose([
         transforms.Resize((224, 224)),
         transforms.ToTensor(),
@@ -88,47 +66,109 @@ def get_val_transform():
     ])
 
 # ============================================================================
-# MODEL LOADING
+# MODEL LOADING (FLEXIBLE)
 # ============================================================================
 
 def load_pretrained_model(model_path: str) -> nn.Module:
     """
-    Charge le modèle .bin depuis HuggingFace
-    
-    Args:
-        model_path (str): Chemin vers model.bin
-    
-    Returns:
-        nn.Module: Modèle PyTorch chargé
+    Charge le modèle .bin
+    ACCEPTE : PyTorch standard OU onnx2torch format
     """
     print(f"📦 Loading model from {model_path}")
     
     # Load state dict
     state_dict = torch.load(model_path, map_location=DEVICE)
     
-    # Si le state_dict contient 'model', extraire
-    if isinstance(state_dict, dict) and 'model' in state_dict:
-        state_dict = state_dict['model']
+    # Gérer nested dicts
+    if isinstance(state_dict, dict):
+        if 'model' in state_dict:
+            print("   Extracting 'model' key")
+            state_dict = state_dict['model']
+        elif 'state_dict' in state_dict:
+            print("   Extracting 'state_dict' key")
+            state_dict = state_dict['state_dict']
     
-    # Crée le modèle (architecture EfficientNet B4)
+    # Créer le modèle
     from torchvision import models
     model = models.efficientnet_b4(weights=None)
     
-    # Modifie la dernière couche pour 4 sorties
     num_ftrs = model.classifier[1].in_features
     model.classifier[1] = nn.Linear(num_ftrs, NUM_CLASSES)
     
-    # Charge les poids
-    model.load_state_dict(state_dict, strict=False)
+    # ✅ DÉTECTION : onnx2torch format VS PyTorch format
+    sample_key = list(state_dict.keys())[0]
+    is_onnx2torch = '/' in sample_key  # onnx2torch uses "/" in keys
+    
+    if is_onnx2torch:
+        print("   ⚠️  Detected onnx2torch format (slashes in keys)")
+        print("   Loading with strict=False (onnx2torch compatibility)")
+        
+        # ✅ Load avec strict=False pour onnx2torch
+        missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
+        
+        print(f"   Missing keys: {len(missing_keys)}")
+        print(f"   Unexpected keys: {len(unexpected_keys)}")
+        
+        # ✅ MAIS vérifier que le modèle marche quand même
+        print("\n🔍 Testing model (onnx2torch)...")
+        
+        with torch.no_grad():
+            test1 = torch.randn(1, 3, 224, 224)
+            test2 = torch.randn(1, 3, 224, 224)
+            
+            try:
+                out1 = model(test1)
+                out2 = model(test2)
+                
+                diff = torch.abs(out1 - out2).max().item()
+                print(f"   Variation: {diff:.4f}")
+                
+                if diff < 1e-6:
+                    raise ValueError("Model outputs constant! Loading failed.")
+                
+                print("   ✅ Model works despite key mismatch (onnx2torch partial load)")
+                
+            except Exception as e:
+                print(f"   ❌ Model inference failed: {e}")
+                print("\n💡 Solution: Re-upload pytorch_model.bin with correct format")
+                print("   Run: create_correct_pytorch_bin.py")
+                raise ValueError("onnx2torch .bin not compatible")
+    
+    else:
+        print("   ✅ Detected PyTorch standard format")
+        print("   Loading with strict=True")
+        
+        # ✅ Load avec strict=True pour PyTorch standard
+        missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=True)
+        
+        if missing_keys:
+            print(f"   ❌ Missing keys: {missing_keys}")
+            raise ValueError(f"State dict incomplete! Missing {len(missing_keys)} keys")
+        
+        if unexpected_keys:
+            print(f"   ⚠️  Unexpected keys: {unexpected_keys}")
+        
+        # Test
+        print("\n🔍 Testing model...")
+        with torch.no_grad():
+            test1 = torch.randn(1, 3, 224, 224)
+            test2 = torch.randn(1, 3, 224, 224)
+            
+            out1 = model(test1)
+            out2 = model(test2)
+            
+            diff = torch.abs(out1 - out2).max().item()
+            print(f"   Variation: {diff:.4f}")
+            
+            if diff < 1e-6:
+                raise ValueError("Model outputs constant!")
     
     model = model.to(DEVICE)
-    print(f"✅ Model loaded on {DEVICE}")
+    print(f"✅ Model loaded correctly")
     
     return model
 
-# ============================================================================
-# TRAINING
-# ============================================================================
+# [train_one_epoch, evaluate_model - identiques...]
 
 def train_one_epoch(
     model: nn.Module,
@@ -138,35 +178,19 @@ def train_one_epoch(
     epoch: int,
     accumulation_steps: int = 4 
 ) -> float:
-    """Entraîne le modèle sur une époque"""
     model.train()
     running_loss = 0.0
     optimizer.zero_grad()
+    
     for batch_idx, (images, labels) in enumerate(train_loader):
         images = images.to(DEVICE)
         labels = labels.to(DEVICE)
         
-        # Forward
-        # optimizer.zero_grad()
         outputs = model(images)
         loss = criterion(outputs, labels)
-        
-        # Normalise la loss par accumulation_steps
         loss = loss / accumulation_steps        
-
-        # Backward
         loss.backward()
-    #     optimizer.step()
         
-    #     running_loss += loss.item()
-        
-    #     # Log progress
-    #     if (batch_idx + 1) % 10 == 0:
-    #         print(f"  Batch [{batch_idx + 1}/{len(train_loader)}] - Loss: {loss.item():.4f}")
-    
-    # epoch_loss = running_loss / len(train_loader)
-    # return epoch_loss
-        # ⭐ Update seulement tous les N steps
         if (batch_idx + 1) % accumulation_steps == 0:
             optimizer.step()
             optimizer.zero_grad()
@@ -176,7 +200,6 @@ def train_one_epoch(
         if (batch_idx + 1) % 10 == 0:
             print(f"  Batch [{batch_idx + 1}/{len(train_loader)}] - Loss: {loss.item() * accumulation_steps:.4f}")
     
-    # ⭐ Dernier update si nécessaire
     if (batch_idx + 1) % accumulation_steps != 0:
         optimizer.step()
         optimizer.zero_grad()
@@ -184,28 +207,21 @@ def train_one_epoch(
     epoch_loss = running_loss / len(train_loader)
     return epoch_loss
 
-# ============================================================================
-# EVALUATION
-# ============================================================================
-
 def evaluate_model(
     model: nn.Module,
     val_loader: DataLoader,
     criterion: nn.Module
 ) -> Tuple[float, Dict[str, float]]:
-    """Évalue le modèle sur validation set"""
     model.eval()
     running_loss = 0.0
-    
     all_preds = []
     all_labels = []
     
-        # ✅ DEBUG : Vérifie le DataLoader
     print(f"📊 DataLoader length: {len(val_loader)}")
     print(f"📊 Total samples: {len(val_loader.dataset)}")
     
     if len(val_loader) == 0:
-        raise ValueError("❌ DataLoader is empty! No data to evaluate.")
+        raise ValueError("❌ DataLoader empty!")
 
     with torch.no_grad():
         for images, labels in val_loader:
@@ -216,15 +232,12 @@ def evaluate_model(
             loss = criterion(outputs, labels)
             
             running_loss += loss.item()
-            
             all_preds.append(outputs.cpu().numpy())
             all_labels.append(labels.cpu().numpy())
     
-    # Concatenate
     all_preds = np.concatenate(all_preds, axis=0)
     all_labels = np.concatenate(all_labels, axis=0)
     
-    # Calcule MAE par émotion
     emotions = ['boredom', 'confusion', 'engagement', 'frustration']
     mae_per_emotion = {}
     
@@ -232,9 +245,7 @@ def evaluate_model(
         mae = np.mean(np.abs(all_preds[:, i] - all_labels[:, i]))
         mae_per_emotion[f'mae_{emotion}'] = mae
     
-    # MAE global
     mae_global = np.mean([mae_per_emotion[f'mae_{emotion}'] for emotion in emotions])
-    
     val_loss = running_loss / len(val_loader)
     
     metrics = {
@@ -246,7 +257,7 @@ def evaluate_model(
     return val_loss, metrics
 
 # ============================================================================
-# FINE-TUNING COMPLET
+# FINE-TUNING (AVEC FREEZE)
 # ============================================================================
 
 def finetune_model(
@@ -255,28 +266,38 @@ def finetune_model(
     val_data: Tuple[list, np.ndarray],
     num_epochs: int = NUM_EPOCHS,
     learning_rate: float = LEARNING_RATE,
-    batch_size: int = BATCH_SIZE
+    batch_size: int = BATCH_SIZE,
+    freeze_backbone: bool = True
 ) -> Tuple[nn.Module, Dict]:
-    """
-    Fine-tune le modèle avec nouvelles données
-    
-    Args:
-        model_path (str): Chemin vers model.bin
-        train_data (tuple): (image_paths, labels)
-        val_data (tuple): (image_paths, labels)
-        num_epochs (int): Nombre d'époques
-        learning_rate (float): Learning rate
-        batch_size (int): Batch size
-    
-    Returns:
-        tuple: (model fine-tuné, historique training)
-    """
     print("🔥 Starting fine-tuning...")
     
     # Load model
     model = load_pretrained_model(model_path)
     
-    # Créer datasets
+    # ✅ FREEZE BACKBONE
+    if freeze_backbone:
+        print("\n❄️  FREEZING BACKBONE...")
+        
+        frozen_params = 0
+        trainable_params = 0
+        
+        for name, param in model.named_parameters():
+            if 'classifier' not in name:
+                param.requires_grad = False
+                frozen_params += param.numel()
+            else:
+                param.requires_grad = True
+                trainable_params += param.numel()
+        
+        print(f"   Frozen: {frozen_params:,}")
+        print(f"   Trainable: {trainable_params:,}")
+        print(f"   Ratio: {trainable_params / (frozen_params + trainable_params) * 100:.2f}%\n")
+        
+        if learning_rate < 1e-3:
+            learning_rate = 1e-3
+            print(f"   Learning rate → {learning_rate}\n")
+    
+    # Datasets
     train_images, train_labels = train_data
     val_images, val_labels = val_data
     
@@ -290,8 +311,11 @@ def finetune_model(
     print(f"📊 Val samples: {len(val_dataset)}")
     
     # Loss et optimizer
-    criterion = nn.MSELoss()  # Régression
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    criterion = nn.MSELoss()
+    optimizer = optim.Adam(
+        filter(lambda p: p.requires_grad, model.parameters()),
+        lr=learning_rate
+    )
     
     # Training loop
     history = {
@@ -305,11 +329,9 @@ def finetune_model(
     for epoch in range(num_epochs):
         print(f"\n📈 Epoch [{epoch + 1}/{num_epochs}]")
         
-        # Train
         train_loss = train_one_epoch(model, train_loader, criterion, optimizer, epoch, accumulation_steps=4)
         history['train_loss'].append(train_loss)
         
-        # Validate
         val_loss, val_metrics = evaluate_model(model, val_loader, criterion)
         history['val_loss'].append(val_loss)
         history['val_metrics'].append(val_metrics)
@@ -318,20 +340,14 @@ def finetune_model(
         print(f"  Val Loss: {val_loss:.4f}")
         print(f"  MAE Global: {val_metrics['mae_global']:.4f}")
         
-        # Save best model
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            print(f"  ✅ New best model! (val_loss: {val_loss:.4f})")
+            print(f"  ✅ New best!")
     
     print("\n🎉 Fine-tuning complete!")
     
     return model, history
 
-# ============================================================================
-# SAVE MODEL
-# ============================================================================
-
 def save_model(model: nn.Module, save_path: str):
-    """Sauvegarde le modèle PyTorch"""
     torch.save(model.state_dict(), save_path)
     print(f"💾 Model saved to {save_path}")

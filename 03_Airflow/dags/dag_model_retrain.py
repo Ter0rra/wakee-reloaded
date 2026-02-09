@@ -39,8 +39,8 @@ R2_ENDPOINT_URL = os.getenv("R2_URI")
 
 # Training
 MIN_SAMPLES = 5  # Minimum d'annotations pour retrain => preference 100 
-NUM_EPOCHS = 2   # preference 10
-LEARNING_RATE = 1e-4
+NUM_EPOCHS = 5   # preference 10
+LEARNING_RATE = 1e-3
 BATCH_SIZE = 4 # idealement 16
 
 # Versioning
