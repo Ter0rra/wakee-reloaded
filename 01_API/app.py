@@ -207,7 +207,7 @@ async def startup_event():
             )
 
             state_dict = torch.load(bin_path, map_location=DEVICE)
-            model.load_state_dict(state_dict, strict=True)
+            model.load_state_dict(state_dict, strict=False)
             model.eval()
 
             print("✅ PyTorch chargé")
