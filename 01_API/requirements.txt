@@ -7,7 +7,8 @@ python-multipart==0.0.6
 huggingface-hub==0.20.3
 
 # ML - JUSTE ONNX Runtime (pas PyTorch !)
-onnxruntime==1.17.0
+# onnxruntime==1.17.0
+onnxruntime
 
 # Image processing
 pillow==10.2.0
