@@ -243,7 +243,7 @@ async def startup_event():
     if onnx_session:
         input_name = onnx_session.get_inputs()[0].name
         input_shape = onnx_session.get_inputs()[0].shape
-        print(f"   Input : {input_name} {input_shape}\n"
+        print(f"   Input : {input_name} {input_shape}\n")
     
     # 2. Database
     if NEON_DATABASE_URL:
