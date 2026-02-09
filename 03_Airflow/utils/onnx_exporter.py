@@ -6,7 +6,7 @@ Exporte le modèle PyTorch vers ONNX pour l'API
 import torch
 import torch.onnx
 import onnx
-# import onnxscript
+import onnxscript
 import onnxruntime as ort
 import numpy as np
 from typing import Tuple
