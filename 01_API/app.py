@@ -173,6 +173,14 @@ async def startup_event():
             cache_dir="/tmp/models"
         )
 
+        # ✅ Vérifier la taille avant de charger
+        file_size_mb = os.path.getsize(onnx_path) / 1e6
+        print(f"   ONNX file size: {file_size_mb:.2f} MB")
+        
+        if file_size_mb < 10:
+            print(f"⚠️  ONNX file too small ({file_size_mb:.2f} MB), using fallback")
+            raise ValueError("ONNX file incomplete")
+
         onnx_session = ort.InferenceSession(onnx_path)
         print("✅ ONNX chargé directement")
 
@@ -189,6 +197,10 @@ async def startup_event():
                 filename="pytorch_model.bin",
                 cache_dir="/tmp/models"
             )
+            
+            # ✅ Vérifier la taille du .bin
+            bin_size_mb = os.path.getsize(bin_path) / 1e6
+            print(f"   PyTorch .bin size: {bin_size_mb:.2f} MB")
 
             # -------------------------
             # 2. Charger PyTorch
@@ -206,7 +218,16 @@ async def startup_event():
                 NUM_CLASSES
             )
 
-            state_dict = torch.load(bin_path, map_location=DEVICE)
+            # ✅ CORRECTION : Ajouter weights_only=False
+            state_dict = torch.load(bin_path, map_location=DEVICE, weights_only=False)
+            
+            # ✅ CORRECTION : Gérer les cas où state_dict est nested
+            if isinstance(state_dict, dict):
+                if 'model' in state_dict:
+                    state_dict = state_dict['model']
+                elif 'state_dict' in state_dict:
+                    state_dict = state_dict['state_dict']
+            
             model.load_state_dict(state_dict, strict=False)
             model.eval()
 
@@ -219,32 +240,50 @@ async def startup_event():
 
             dummy = torch.randn(1, 3, 224, 224)
 
+            # ✅ CORRECTION PRINCIPALE : do_constant_folding=True
             torch.onnx.export(
                 model,
                 dummy,
                 tmp_onnx,
-                export_params=True,
-                opset_version=17,
-                do_constant_folding=False,
+                export_params=True,           # ✅ OK
+                opset_version=17,             # ✅ OK
+                do_constant_folding=True,     # ✅ CHANGÉ : True au lieu de False !
                 input_names=["input"],
-                output_names=["output"]
+                output_names=["output"],
+                dynamic_axes={                # ✅ AJOUTÉ : Pour batch dynamique
+                    'input': {0: 'batch_size'},
+                    'output': {0: 'batch_size'}
+                },
+                verbose=False
             )
 
             print("✅ Conversion ONNX locale OK")
+            
+            # ✅ AJOUTÉ : Vérifier la taille du ONNX
+            onnx_size_mb = os.path.getsize(tmp_onnx) / 1e6
+            print(f"   ONNX file size: {onnx_size_mb:.2f} MB")
+            
+            if onnx_size_mb < 10:
+                raise ValueError(f"ONNX file too small ({onnx_size_mb:.2f} MB)! Weights not exported.")
 
             # -------------------------
             # 4. ORT session
             # -------------------------
             onnx_session = ort.InferenceSession(tmp_onnx)
+            
+            # ✅ AJOUTÉ : Test que le modèle marche
+            test_input = np.random.randn(1, 3, 224, 224).astype(np.float32)
+            test_output = onnx_session.run(['output'], {'input': test_input})
+            print(f"   Test inference OK, output shape: {test_output[0].shape}")
 
         except Exception as e2:
             print(f"❌ Fallback PyTorch échoué : {e2}")
             onnx_session = None
 
-    if onnx_session:
-        input_name = onnx_session.get_inputs()[0].name
-        input_shape = onnx_session.get_inputs()[0].shape
-        print(f"   Input : {input_name} {input_shape}\n")
+        if onnx_session:
+            input_name = onnx_session.get_inputs()[0].name
+            input_shape = onnx_session.get_inputs()[0].shape
+            print(f"   Input : {input_name} {input_shape}\n")
     
     # 2. Database
     if NEON_DATABASE_URL:

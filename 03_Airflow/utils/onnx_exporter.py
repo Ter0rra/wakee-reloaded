@@ -66,6 +66,9 @@ def export_to_onnx(
             }
         )
 
+        # ✅ Vérifier la taille du fichier
+        file_size_mb = os.path.getsize(onnx_path) / 1e6
+        print(f"   ONNX file size: {file_size_mb:.2f} MB")
         
         print("✅ ONNX export successful")
         
