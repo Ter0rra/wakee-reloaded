@@ -43,5 +43,9 @@ docker system df
 echo ""
 echo "✅ Cleanup complete!"
 echo ""
+echo "To make a big clear/clean systeme docker "
+echo " docker system prune -a --volumes"
+echo ""
 echo "To restart Airflow:"
 echo "  docker compose up -d"
+
