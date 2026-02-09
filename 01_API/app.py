@@ -2,6 +2,8 @@
 Wakee API - Production
 ONNX Runtime UNIQUEMENT (pas de PyTorch)
 """
+import os
+os.environ["HUGGINGFACE_HUB_DISABLE_XET"] = "1"
 
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,7 +16,7 @@ import io
 import numpy as np
 from datetime import datetime
 import base64
-import os
+
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
