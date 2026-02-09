@@ -4,8 +4,12 @@ Upload model.bin et model.onnx vers HF Model Hub
 """
 
 from huggingface_hub import HfApi, create_repo, upload_file
+from github import Github
+
 import os
-from typing import Optional
+from typing import Optional, Dict
+import shutil
+from pathlib import Path
 
 # ============================================================================
 # CONFIGURATION
@@ -22,102 +26,96 @@ def upload_model_to_hf(
     model_bin_path: str,
     model_onnx_path: str,
     version_name: str,
+    github_repo: str,
+    hf_repo: str,
+    github_token: str,
+    hf_token: str,
     commit_message: Optional[str] = None
-) -> dict:
+) -> Dict:
     """
-    Upload model.bin et model.onnx vers HuggingFace Hub
-    
-    Args:
-        model_bin_path (str): Chemin local du model.bin
-        model_onnx_path (str): Chemin local du model.onnx
-        version_name (str): Version du modèle (ex: 'v1.1.0')
-        commit_message (str): Message du commit
-    
+    Pipeline:
+    1) Copie les modèles dans ./models/
+    2) Push ce dossier vers GitHub via API
+    3) Upload le dossier vers HuggingFace Hub (auto LFS)
+
     Returns:
-        dict: URLs des fichiers uploadés
+        dict contenant urls GitHub + HF
     """
-    print("🚀 Uploading models to HuggingFace Hub...")
-    print(f"   Repository: {HF_MODEL_REPO}")
-    print(f"   Version: {version_name}")
-    
-    if not HF_TOKEN:
-        raise ValueError("HF_TOKEN not configured")
-    
-    # Créer l'API client
-    api = HfApi(token=HF_TOKEN)
-    
-    # Vérifier que le repo existe (sinon créer)
-    try:
-        api.repo_info(repo_id=HF_MODEL_REPO, repo_type="model")
-        print(f"✅ Repository exists: {HF_MODEL_REPO}")
-    except Exception:
-        print(f"⚠️  Repository not found, have to create: {HF_MODEL_REPO}")
-        # create_repo(repo_id=HF_MODEL_REPO, repo_type="model", token=HF_TOKEN)
-    
-    # Message de commit par défaut
+
     if commit_message is None:
-        commit_message = f"Upload {version_name} - Automated retrain from drift detection"
-    
-    uploaded_files = {}
-    
-    # 1. Upload model.bin
-    print("\n📦 Uploading pytorch_model.bin...")
-    try:
-        url_bin = api.upload_file(
-            path_or_fileobj=model_bin_path,
-            path_in_repo="pytorch_model.bin",
-            repo_id=HF_MODEL_REPO,
-            repo_type="model",
-            token=HF_TOKEN,
-            commit_message=commit_message
-        )
-        print(f"✅ model.bin uploaded: {url_bin}")
-        uploaded_files['model_bin_url'] = url_bin
-    except Exception as e:
-        print(f"❌ Failed to upload model.bin: {e}")
-        raise
-    
-    # 2. Upload model.onnx
-    print("\n📦 Uploading model.onnx...")
-    try:
-        url_onnx = api.upload_file(
-            path_or_fileobj=model_onnx_path,
-            path_in_repo="model.onnx",
-            repo_id=HF_MODEL_REPO,
-            repo_type="model",
-            token=HF_TOKEN,
-            commit_message=commit_message
-        )
-        print(f"✅ model.onnx uploaded: {url_onnx}")
-        uploaded_files['model_onnx_url'] = url_onnx
-    except Exception as e:
-        print(f"❌ Failed to upload model.onnx: {e}")
-        raise
-    
-    # 3. Upload README avec version info (optionnel)
-    print("\n📄 Updating README...")
-    try:
-        readme_content = generate_readme(version_name)
-        readme_path = "/tmp/README.md"
-        with open(readme_path, 'w') as f:
-            f.write(readme_content)
-        
-        url_readme = upload_file(
-            path_or_fileobj=readme_path,
-            path_in_repo="README.md",
-            repo_id=HF_MODEL_REPO,
-            repo_type="model",
-            token=HF_TOKEN,
-            commit_message=f"Update README for {version_name}"
-        )
-        print(f"✅ README.md updated")
-        uploaded_files['readme_url'] = url_readme
-    except Exception as e:
-        print(f"⚠️  Failed to update README: {e}")
-    
-    print("\n🎉 All files uploaded successfully!")
-    
-    return uploaded_files
+        commit_message = f"Upload model {version_name}"
+
+    models_dir = Path("models")
+    models_dir.mkdir(exist_ok=True)
+
+    print("📦 Step 1 — Copy local models")
+
+    bin_dst = models_dir / "pytorch_model.bin"
+    onnx_dst = models_dir / "model.onnx"
+
+    shutil.copy(model_bin_path, bin_dst)
+    shutil.copy(model_onnx_path, onnx_dst)
+
+    print("✅ Files copied to ./models")
+
+    # =========================================================
+    # 2️⃣ PUSH TO GITHUB (sans git)
+    # =========================================================
+    print("\n🚀 Step 2 — Push to GitHub")
+
+    gh = Github(github_token)
+    repo = gh.get_repo(github_repo)
+
+    github_urls = {}
+
+    for file_path in models_dir.iterdir():
+        with open(file_path, "rb") as f:
+            content = f.read()
+
+        try:
+            repo.create_file(
+                path=f"models/{file_path.name}",
+                message=commit_message,
+                content=content,
+                branch="main"
+            )
+            print(f"✅ Created {file_path.name}")
+        except Exception:
+            # update si déjà existant
+            existing = repo.get_contents(f"models/{file_path.name}")
+            repo.update_file(
+                path=existing.path,
+                message=commit_message,
+                content=content,
+                sha=existing.sha,
+                branch="main"
+            )
+            print(f"♻️ Updated {file_path.name}")
+
+        github_urls[file_path.name] = f"https://github.com/{github_repo}/blob/main/models/{file_path.name}"
+
+    # =========================================================
+    # 3️⃣ UPLOAD TO HUGGINGFACE (auto LFS côté serveur)
+    # =========================================================
+    print("\n🤗 Step 3 — Upload to HuggingFace")
+
+    api = HfApi(token=hf_token)
+
+    api.upload_folder(
+        folder_path=str(models_dir),
+        repo_id=HF_MODEL_REPO,
+        repo_type="model",
+        commit_message=commit_message
+    )
+
+    hf_url = f"https://huggingface.co/{hf_repo}"
+
+    print("✅ Upload HF terminé")
+
+    return {
+        "github_files": github_urls,
+        "hf_repo": hf_url
+    }
 
 # ============================================================================
 # GENERATE README

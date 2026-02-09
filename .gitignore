@@ -1,6 +1,7 @@
 # Python
 __pycache__/
 model_cache/
+model_legacy/
 *.py[cod]
 *$py.class
 *.so
@@ -27,9 +28,9 @@ build/
 !.env.example
 
 # Data & Models (locaux)
-*.onnx
+# *.onnx
 *.pth
-*.bin
+# *.bin
 *.h5
 !model_legacy/daisee_model.onnx
 !model_legacy/pytorch_model.bin
@@ -39,7 +40,6 @@ build/
 logs/
 03_Airflow/logs/
 03_Airflow/plugins/
-03_Airflow/models/
 03_Airflow/config/
 
 # OS
