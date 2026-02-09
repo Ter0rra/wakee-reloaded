@@ -337,9 +337,9 @@ async def predict_emotion(file: UploadFile = File(...)):
         
         # 3. Inference ONNX
         outputs = onnx_session.run(['output'], {'input': input_tensor})
-        # scores_array = outputs[0][0]
-        raw = outputs[0][0]
-        scores_array = 3.0 * (1 / (1 + np.exp(-raw)))
+        scores_array = outputs[0][0]
+        # raw = outputs[0][0]
+        # scores_array = 3.0 * (1 / (1 + np.exp(-raw)))
         
         # 4. Format résultats
         return PredictionResponse(
