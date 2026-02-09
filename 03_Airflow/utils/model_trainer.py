@@ -119,7 +119,7 @@ def load_pretrained_model(model_path: str) -> nn.Module:
     model.classifier[1] = nn.Linear(num_ftrs, NUM_CLASSES)
     
     # Charge les poids
-    model.load_state_dict(state_dict, strict=True)
+    model.load_state_dict(state_dict, strict=False)
     
     model = model.to(DEVICE)
     print(f"✅ Model loaded on {DEVICE}")

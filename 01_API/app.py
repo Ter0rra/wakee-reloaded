@@ -160,31 +160,90 @@ async def startup_event():
     print("=" * 70)
     print("🚀 DÉMARRAGE API WAKEE (ONNX Runtime)")
     print("=" * 70)
-    
-    # 1. Download model from HF Model Hub
+
+    onnx_session = None
+
     try:
-        print(f"\n📥 Téléchargement du modèle ONNX...")
-        print(f"   Repo : {HF_MODEL_REPO}")
-        print(f"   File : {MODEL_FILENAME}")
-        
-        model_path = hf_hub_download(
+        print("\n📥 Tentative chargement ONNX depuis HF...")
+
+        onnx_path = hf_hub_download(
             repo_id=HF_MODEL_REPO,
-            filename=MODEL_FILENAME,
+            filename="model.onnx",
             cache_dir="/tmp/models"
         )
-        
-        # Load ONNX session (PAS DE PYTORCH !)
-        onnx_session = ort.InferenceSession(model_path)
-        
+
+        onnx_session = ort.InferenceSession(onnx_path)
+        print("✅ ONNX chargé directement")
+
+    except Exception as e:
+        print(f"⚠️ ONNX indisponible: {e}")
+        print("🔁 Fallback → PyTorch .bin → conversion ONNX...")
+
+        try:
+            # -------------------------
+            # 1. Download .bin
+            # -------------------------
+            bin_path = hf_hub_download(
+                repo_id=HF_MODEL_REPO,
+                filename="pytorch_model.bin",
+                cache_dir="/tmp/models"
+            )
+
+            # -------------------------
+            # 2. Charger PyTorch
+            # -------------------------
+            import torch
+            from torchvision import models
+            import torch.nn as nn
+
+            NUM_CLASSES = 4
+            DEVICE = "cpu"
+
+            model = models.efficientnet_b4(weights=None)
+            model.classifier[1] = nn.Linear(
+                model.classifier[1].in_features,
+                NUM_CLASSES
+            )
+
+            state_dict = torch.load(bin_path, map_location=DEVICE)
+            model.load_state_dict(state_dict, strict=True)
+            model.eval()
+
+            print("✅ PyTorch chargé")
+
+            # -------------------------
+            # 3. Export ONNX local
+            # -------------------------
+            tmp_onnx = "/tmp/models/fallback_model.onnx"
+
+            dummy = torch.randn(1, 3, 224, 224)
+
+            torch.onnx.export(
+                model,
+                dummy,
+                tmp_onnx,
+                export_params=True,
+                opset_version=17,
+                do_constant_folding=False,
+                input_names=["input"],
+                output_names=["output"]
+            )
+
+            print("✅ Conversion ONNX locale OK")
+
+            # -------------------------
+            # 4. ORT session
+            # -------------------------
+            onnx_session = ort.InferenceSession(tmp_onnx)
+
+        except Exception as e2:
+            print(f"❌ Fallback PyTorch échoué : {e2}")
+            onnx_session = None
+
+    if onnx_session:
         input_name = onnx_session.get_inputs()[0].name
         input_shape = onnx_session.get_inputs()[0].shape
-        
-        print(f"✅ Modèle ONNX chargé : {model_path}")
-        print(f"   Input : {input_name} {input_shape}\n")
-        
-    except Exception as e:
-        print(f"❌ Erreur chargement modèle : {e}\n")
-        onnx_session = None
+        print(f"   Input : {input_name} {input_shape}\n"
     
     # 2. Database
     if NEON_DATABASE_URL:

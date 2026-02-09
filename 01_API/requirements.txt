@@ -6,7 +6,11 @@ python-multipart==0.0.6
 # HuggingFace (pour télécharger le modèle)
 huggingface-hub==0.20.3
 
-# ML - JUSTE ONNX Runtime (pas PyTorch !)
+# ML
+# pytorch
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch
+torchvision
 # onnxruntime==1.17.0
 onnxruntime
 
