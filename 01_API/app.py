@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from typing import List, Optional
 from huggingface_hub import hf_hub_download
 import onnxruntime as ort
+import onnxscript
 from PIL import Image
 import io
 import numpy as np

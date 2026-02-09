@@ -13,6 +13,7 @@ torch
 torchvision
 # onnxruntime==1.17.0
 onnxruntime
+onnxscript
 
 # Image processing
 pillow==10.2.0
