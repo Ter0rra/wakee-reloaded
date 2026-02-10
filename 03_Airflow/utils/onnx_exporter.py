@@ -1,11 +1,12 @@
 """
-ONNX Exporter - VERSION ULTIME
-Utilise l'ANCIEN exporteur PyTorch pour éviter les optimisations
+ONNX Exporter - FIX BATCHNORM
+Force eval mode ET désactive tous les BatchNorm
 """
 
 import os
 import torch
 import torch.onnx
+import torch.nn as nn
 import onnx
 import onnxruntime as ort
 import numpy as np
@@ -19,7 +20,7 @@ DEVICE = 'cpu'
 INPUT_SHAPE = (1, 3, 224, 224)
 
 # ============================================================================
-# EXPORT TO ONNX (ANCIEN EXPORTEUR)
+# EXPORT TO ONNX (FIX BATCHNORM)
 # ============================================================================
 
 def export_to_onnx(
@@ -29,45 +30,69 @@ def export_to_onnx(
 ) -> bool:
     """
     Exporte le modèle PyTorch vers ONNX
-    UTILISE L'ANCIEN EXPORTEUR pour éviter les optimisations
+    FIX: Force eval mode et désactive BatchNorm
     """
     print(f"🔄 Exporting PyTorch model to ONNX...")
     print(f"   Output: {onnx_path}")
     print(f"   Opset version: {opset_version}")
-    print(f"   Using LEGACY ONNX exporter (no optimizations)")
     
     try:
-        # Mode eval
+        # ✅ CRITIQUE : Force eval mode
         pytorch_model.eval()
         pytorch_model = pytorch_model.to(DEVICE)
+        
+        # ✅ CRITIQUE : Désactive EXPLICITEMENT tous les BatchNorm
+        print("\n🔧 Setting all BatchNorm layers to eval mode...")
+        
+        bn_count = 0
+        for module in pytorch_model.modules():
+            if isinstance(module, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)):
+                module.eval()
+                module.track_running_stats = False  # ✅ IMPORTANT
+                bn_count += 1
+        
+        print(f"   Set {bn_count} BatchNorm layers to eval mode")
+        
+        # ✅ TEST PyTorch AVANT export
+        print("\n🧪 Testing PyTorch model BEFORE export...")
+        with torch.no_grad():
+            test1 = torch.randn(INPUT_SHAPE, device=DEVICE)
+            test2 = torch.randn(INPUT_SHAPE, device=DEVICE)
+            
+            out1 = pytorch_model(test1)
+            out2 = pytorch_model(test2)
+            
+            diff_pytorch = torch.abs(out1 - out2).max().item()
+            print(f"   PyTorch variation: {diff_pytorch:.6f}")
+            
+            if diff_pytorch < 1e-6:
+                print(f"   ❌ PyTorch model is constant BEFORE export!")
+                return False
+            
+            print(f"   ✅ PyTorch OK before export")
         
         # Créer un input dummy
         dummy_input = torch.randn(INPUT_SHAPE, device=DEVICE)
         
-        # ✅ EXPORT AVEC L'ANCIEN EXPORTEUR
-        # En mettant dynamo=False, on force l'ancien exporteur
-        with torch.onnx.select_model_mode_for_export(
-            pytorch_model, torch.onnx.TrainingMode.EVAL
-        ):
-            torch.onnx.export(
-                pytorch_model,
-                dummy_input,
-                onnx_path,
-                export_params=True,
-                opset_version=opset_version,
-                do_constant_folding=False,
-                input_names=['input'],
-                output_names=['output'],
-                dynamic_axes={
-                    'input': {0: 'batch_size'},
-                    'output': {0: 'batch_size'}
-                },
-                verbose=False,
-                # ✅ CRITIQUE : Forcer l'ancien exporteur
-                dynamo=False,
-                # ✅ CRITIQUE : Garder les formes originales
-                keep_initializers_as_inputs=False,
-            )
+        print(f"\n📤 Exporting to ONNX (opset {opset_version})...")
+        
+        # ✅ EXPORT ONNX
+        torch.onnx.export(
+            pytorch_model,
+            dummy_input,
+            onnx_path,
+            export_params=True,
+            opset_version=opset_version,
+            do_constant_folding=False,
+            input_names=['input'],
+            output_names=['output'],
+            dynamic_axes={
+                'input': {0: 'batch_size'},
+                'output': {0: 'batch_size'}
+            },
+            verbose=False,
+            training=torch.onnx.TrainingMode.EVAL,  # ✅ EXPLICIT EVAL MODE
+        )
 
         # Vérifier la taille du fichier
         file_size_mb = os.path.getsize(onnx_path) / 1e6
@@ -75,14 +100,6 @@ def export_to_onnx(
         
         if file_size_mb < 10:
             print(f"   ⚠️  File size too small ({file_size_mb:.2f} MB)")
-            print(f"   Expected: ~70-75 MB")
-            
-            # Vérifier le nombre d'initializers
-            onnx_model = onnx.load(onnx_path)
-            num_init = len(onnx_model.graph.initializer)
-            print(f"   Initializers: {num_init}")
-            print(f"   Expected: ~400+")
-            
             return False
         
         print("✅ ONNX export successful")
@@ -95,7 +112,9 @@ def export_to_onnx(
         traceback.print_exc()
         return False
 
-# [Reste du code identique à avant...]
+# ============================================================================
+# VERIFY ONNX MODEL
+# ============================================================================
 
 def verify_onnx_model(onnx_path: str) -> bool:
     """Vérifie que le modèle ONNX est valide"""
@@ -121,6 +140,10 @@ def verify_onnx_model(onnx_path: str) -> bool:
         print(f"❌ ONNX model verification failed: {e}")
         return False
 
+# ============================================================================
+# TEST ONNX INFERENCE (AVEC DEBUG)
+# ============================================================================
+
 def test_onnx_inference(onnx_path: str) -> bool:
     """Teste l'inférence avec ONNX Runtime"""
     print(f"🧪 Testing ONNX inference...")
@@ -128,30 +151,47 @@ def test_onnx_inference(onnx_path: str) -> bool:
     try:
         session = ort.InferenceSession(onnx_path)
         
-        dummy_input = np.random.randn(*INPUT_SHAPE).astype(np.float32)
-        outputs = session.run(['output'], {'input': dummy_input})
+        # ✅ TEST avec plusieurs inputs pour être sûr
+        print(f"\n   Running 5 test inferences...")
         
-        assert outputs[0].shape == (1, 4), f"Unexpected output shape: {outputs[0].shape}"
+        all_outputs = []
         
-        print("✅ ONNX inference successful")
-        print(f"   Output shape: {outputs[0].shape}")
-        print(f"   Sample output: {outputs[0][0]}")
+        for i in range(5):
+            test_input = np.random.randn(*INPUT_SHAPE).astype(np.float32)
+            output = session.run(['output'], {'input': test_input})[0]
+            all_outputs.append(output[0])
+            print(f"   Test {i+1}: {output[0]}")
         
-        dummy_input2 = np.random.randn(*INPUT_SHAPE).astype(np.float32)
-        outputs2 = session.run(['output'], {'input': dummy_input2})
+        # Vérifier la variance
+        all_outputs = np.array(all_outputs)
+        variance = np.var(all_outputs, axis=0)
         
-        diff = np.abs(outputs[0] - outputs2[0]).max()
-        print(f"   Output variation: {diff:.6f}")
+        print(f"\n   Variance par classe:")
+        emotions = ['boredom', 'confusion', 'engagement', 'frustration']
+        for i, emotion in enumerate(emotions):
+            print(f"      {emotion}: {variance[i]:.6f}")
         
-        if diff < 1e-6:
-            print(f"   ❌ Outputs are constant!")
+        max_variance = variance.max()
+        print(f"\n   Max variance: {max_variance:.6f}")
+        
+        if max_variance < 1e-6:
+            print(f"   ❌ All outputs are CONSTANT (variance < 1e-6)!")
+            print(f"   → Model is broken!")
             return False
+        
+        print(f"   ✅ Outputs vary correctly")
         
         return True
         
     except Exception as e:
         print(f"❌ ONNX inference failed: {e}")
+        import traceback
+        traceback.print_exc()
         return False
+
+# ============================================================================
+# COMPARE PYTORCH VS ONNX
+# ============================================================================
 
 def compare_pytorch_onnx(
     pytorch_model: torch.nn.Module,
@@ -195,6 +235,10 @@ def compare_pytorch_onnx(
         print(f"❌ Comparison failed: {e}")
         return False, float('inf')
 
+# ============================================================================
+# FULL EXPORT PIPELINE
+# ============================================================================
+
 def export_and_verify(
     pytorch_model: torch.nn.Module,
     onnx_path: str,
@@ -204,7 +248,7 @@ def export_and_verify(
 ) -> bool:
     """Pipeline complet d'export et vérification"""
     print("\n" + "="*70)
-    print("🚀 ONNX EXPORT PIPELINE (LEGACY EXPORTER)")
+    print("🚀 ONNX EXPORT PIPELINE (BATCHNORM FIX)")
     print("="*70)
     
     if not export_to_onnx(pytorch_model, onnx_path):

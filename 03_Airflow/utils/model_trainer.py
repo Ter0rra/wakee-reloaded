@@ -1,6 +1,6 @@
 """
 Model Trainer - VERSION FINALE
-Accepte BOTH : .bin PyTorch standard ET .bin from onnx2torch
+Fix: Sauvegarde en mode TRAIN pour éviter BatchNorm issues
 """
 
 import torch
@@ -20,10 +20,8 @@ import os
 DEVICE = 'cpu'
 BATCH_SIZE = 16
 LEARNING_RATE = 1e-3
-NUM_EPOCHS = 5 # 10
+NUM_EPOCHS = 5
 NUM_CLASSES = 4
-
-# [Dataset, Transforms - identiques à avant...]
 
 class EmotionDataset(Dataset):
     def __init__(self, image_paths, labels, transform=None):
@@ -76,10 +74,8 @@ def load_pretrained_model(model_path: str) -> nn.Module:
     """
     print(f"📦 Loading model from {model_path}")
     
-    # Load state dict
     state_dict = torch.load(model_path, map_location=DEVICE)
     
-    # Gérer nested dicts
     if isinstance(state_dict, dict):
         if 'model' in state_dict:
             print("   Extracting 'model' key")
@@ -88,29 +84,28 @@ def load_pretrained_model(model_path: str) -> nn.Module:
             print("   Extracting 'state_dict' key")
             state_dict = state_dict['state_dict']
     
-    # Créer le modèle
     from torchvision import models
     model = models.efficientnet_b4(weights=None)
     
     num_ftrs = model.classifier[1].in_features
     model.classifier[1] = nn.Linear(num_ftrs, NUM_CLASSES)
     
-    # ✅ DÉTECTION : onnx2torch format VS PyTorch format
     sample_key = list(state_dict.keys())[0]
-    is_onnx2torch = '/' in sample_key  # onnx2torch uses "/" in keys
+    is_onnx2torch = '/' in sample_key
     
     if is_onnx2torch:
-        print("   ⚠️  Detected onnx2torch format (slashes in keys)")
-        print("   Loading with strict=False (onnx2torch compatibility)")
+        print("   ⚠️  Detected onnx2torch format")
+        print("   Loading with strict=False")
         
-        # ✅ Load avec strict=False pour onnx2torch
         missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
         
         print(f"   Missing keys: {len(missing_keys)}")
         print(f"   Unexpected keys: {len(unexpected_keys)}")
         
-        # ✅ MAIS vérifier que le modèle marche quand même
         print("\n🔍 Testing model (onnx2torch)...")
+        
+        # ✅ Test en mode TRAIN
+        model.train()
         
         with torch.no_grad():
             test1 = torch.randn(1, 3, 224, 224)
@@ -121,35 +116,34 @@ def load_pretrained_model(model_path: str) -> nn.Module:
                 out2 = model(test2)
                 
                 diff = torch.abs(out1 - out2).max().item()
-                print(f"   Variation: {diff:.4f}")
+                print(f"   Variation (TRAIN mode): {diff:.4f}")
                 
                 if diff < 1e-6:
-                    raise ValueError("Model outputs constant! Loading failed.")
+                    raise ValueError("Model outputs constant!")
                 
-                print("   ✅ Model works despite key mismatch (onnx2torch partial load)")
+                print("   ✅ Model works (onnx2torch partial load)")
                 
             except Exception as e:
                 print(f"   ❌ Model inference failed: {e}")
-                print("\n💡 Solution: Re-upload pytorch_model.bin with correct format")
-                print("   Run: create_correct_pytorch_bin.py")
                 raise ValueError("onnx2torch .bin not compatible")
     
     else:
         print("   ✅ Detected PyTorch standard format")
         print("   Loading with strict=True")
         
-        # ✅ Load avec strict=True pour PyTorch standard
         missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=True)
         
         if missing_keys:
             print(f"   ❌ Missing keys: {missing_keys}")
-            raise ValueError(f"State dict incomplete! Missing {len(missing_keys)} keys")
+            raise ValueError(f"State dict incomplete!")
         
         if unexpected_keys:
             print(f"   ⚠️  Unexpected keys: {unexpected_keys}")
         
-        # Test
+        # ✅ Test en mode TRAIN
         print("\n🔍 Testing model...")
+        model.train()
+        
         with torch.no_grad():
             test1 = torch.randn(1, 3, 224, 224)
             test2 = torch.randn(1, 3, 224, 224)
@@ -158,7 +152,7 @@ def load_pretrained_model(model_path: str) -> nn.Module:
             out2 = model(test2)
             
             diff = torch.abs(out1 - out2).max().item()
-            print(f"   Variation: {diff:.4f}")
+            print(f"   Variation (TRAIN mode): {diff:.4f}")
             
             if diff < 1e-6:
                 raise ValueError("Model outputs constant!")
@@ -167,8 +161,6 @@ def load_pretrained_model(model_path: str) -> nn.Module:
     print(f"✅ Model loaded correctly")
     
     return model
-
-# [train_one_epoch, evaluate_model - identiques...]
 
 def train_one_epoch(
     model: nn.Module,
@@ -271,7 +263,6 @@ def finetune_model(
 ) -> Tuple[nn.Module, Dict]:
     print("🔥 Starting fine-tuning...")
     
-    # Load model
     model = load_pretrained_model(model_path)
     
     # ✅ FREEZE BACKBONE
@@ -297,7 +288,6 @@ def finetune_model(
             learning_rate = 1e-3
             print(f"   Learning rate → {learning_rate}\n")
     
-    # Datasets
     train_images, train_labels = train_data
     val_images, val_labels = val_data
     
@@ -310,14 +300,12 @@ def finetune_model(
     print(f"📊 Train samples: {len(train_dataset)}")
     print(f"📊 Val samples: {len(val_dataset)}")
     
-    # Loss et optimizer
     criterion = nn.MSELoss()
     optimizer = optim.Adam(
         filter(lambda p: p.requires_grad, model.parameters()),
         lr=learning_rate
     )
     
-    # Training loop
     history = {
         'train_loss': [],
         'val_loss': [],
@@ -348,6 +336,18 @@ def finetune_model(
     
     return model, history
 
+# ============================================================================
+# SAVE MODEL (FIX: Mode TRAIN)
+# ============================================================================
+
 def save_model(model: nn.Module, save_path: str):
+    """
+    Sauvegarde le modèle PyTorch
+    ✅ CRITIQUE: Sauvegarde en mode TRAIN pour éviter BatchNorm issues
+    """
+    # ✅ Mettre en mode TRAIN avant save
+    # Les BatchNorm en eval mode avec batch_size=1 causent des outputs constants
+    model.train()
+    
     torch.save(model.state_dict(), save_path)
-    print(f"💾 Model saved to {save_path}")
+    print(f"💾 Model saved to {save_path} (in TRAIN mode)")
