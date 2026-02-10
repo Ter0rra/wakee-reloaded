@@ -30,7 +30,7 @@ Traditional education lacks real-time feedback on student engagement. Wakee brid
 
 ## 🏗️ Architecture
 
-![Architecture Diagram](architecture_v3.png)
+![Architecture Diagram](architecture.png)
 
 ### **System Components**
 
