@@ -15,6 +15,7 @@ RUN apt-get update && \
 COPY requirements.txt .
 
 # Install Python packages
+RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Expose HF Spaces port
