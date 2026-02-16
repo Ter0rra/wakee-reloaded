@@ -12,6 +12,7 @@ from airflow.sdk import TaskGroup
 import mlflow
 import shutil
 import numpy as np
+import requests
 
 from datetime import datetime, timedelta
 import os
@@ -529,6 +530,43 @@ def task_upload_to_hf(**context):
     context['task_instance'].xcom_push(key='uploaded_files', value=uploaded_files)
 
 # ============================================================================
+# TASK 9.2 : trigger github action
+# ============================================================================
+
+def trigger_deploy_api(**context):
+    """
+    Trigger a GitHub Action via workflow_dispatch
+    """
+
+    token = os.getenv("GITHUB_TOKEN")
+    if not token:
+        raise ValueError("GITHUB_TOKEN not set")
+
+    url = (
+        f"https://api.github.com/repos/"
+        "Ter0rra/wakee-reloaded/"
+        "actions/workflows/deploy-api.yml/dispatches"
+    )
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+    }
+
+    payload = {
+        "ref": "main"
+    }
+
+    r = requests.post(url, json=payload, headers=headers)
+
+    if r.status_code != 204:
+        raise RuntimeError(
+            f"GitHub Action trigger failed: {r.status_code} - {r.text}"
+        )
+
+    print("✅ deploy-api.yml déclenché")
+
+# ============================================================================
 # TASK 10 : clean up
 # ============================================================================
 
@@ -599,20 +637,28 @@ with DAG(
         python_callable=task_decide_deployment
     )
 
-    export_new_task = PythonOperator(
-        task_id='export_new_onnx',
-        python_callable=task_export_new_onnx
-    )
+    with TaskGroup(group_id="new_model") as new_model_deploy:
+        export_new_task = PythonOperator(
+                task_id ='export_new_onnx',
+                python_callable=task_export_new_onnx
+                    )
+
+        trigger_ci = PythonOperator(
+                task_id="trigger_deploy_api",
+                python_callable=trigger_deploy_api
+                    )
+
+        export_new_task >> trigger_ci
 
     keep_baseline_task = PythonOperator(
         task_id='keep_baseline',
         python_callable=task_keep_baseline
-    )
+            )
 
     join_task = EmptyOperator(
         task_id='join_branches',
         trigger_rule='none_failed_min_one_success'
-    )
+            )
 
     upload_task = PythonOperator(
         task_id='upload_to_hf',
@@ -634,6 +680,6 @@ with DAG(
     
     start >> setup_mlflow_task >> download_baseline_task >> convert_onnx_task >> fetch_data_task >> finetune_task >> validate_task >> decide_task
     
-    decide_task >> [export_new_task, keep_baseline_task] 
+    decide_task >> [new_model_deploy, keep_baseline_task] 
 
-    [export_new_task, keep_baseline_task] >> join_task >> upload_task >> cleanup_task >> end
+    [new_model_deploy, keep_baseline_task] >> join_task >> upload_task >> cleanup_task >> end
