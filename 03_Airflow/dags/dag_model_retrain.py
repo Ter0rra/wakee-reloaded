@@ -666,6 +666,12 @@ with DAG(
         trigger_rule='none_failed_min_one_success'
     )
 
+
+    trigger_ci2 = PythonOperator(
+            task_id="trigger_deploy_api_2",
+            python_callable=trigger_deploy_api
+                )
+
     cleanup_task = PythonOperator(
         task_id='cleanup',
         python_callable=task_cleanup,
@@ -682,4 +688,4 @@ with DAG(
     
     decide_task >> [new_model_deploy, keep_baseline_task] 
 
-    [new_model_deploy, keep_baseline_task] >> join_task >> upload_task >> cleanup_task >> end
+    [new_model_deploy, keep_baseline_task] >> join_task >> upload_task >> trigger_ci2 >> cleanup_task >> end
