@@ -5,8 +5,11 @@ Calcule les métriques de drift entre prédictions et annotations utilisateurs
 
 import pandas as pd
 import numpy as np
+import os
 from typing import Dict, Tuple
 from evidently.presets import DataDriftPreset, RegressionPreset
+from evidently import Dataset
+from evidently.ui.workspace import CloudWorkspace
 from evidently import Report
 
 # ============================================================================
@@ -15,6 +18,9 @@ from evidently import Report
 
 DRIFT_THRESHOLD = 0.15  # Seuil MAE global pour déclencher retrain
 EMOTION_COLUMNS = ['boredom', 'confusion', 'engagement', 'frustration']
+
+EVIDENTLY_API_KEY = os.getenv("EVIDENTLY_API_KEY")
+PROJECT_ID=os.getenv("PROJECT_ID")
 
 # ============================================================================
 # CALCUL MÉTRIQUES SIMPLES
@@ -135,50 +141,43 @@ def check_drift_threshold(drift_score: float, threshold: float = DRIFT_THRESHOLD
 # ============================================================================
 
 def generate_evidently_report(df: pd.DataFrame) -> Dict:
-    """
-    Génère un rapport Evidently AI détaillé
-    
-    Args:
-        df (pd.DataFrame): DataFrame avec predicted_* et user_*
-    
-    Returns:
-        dict: Rapport Evidently au format JSON
-    """
-    if len(df) < 10:
+    if len(df) < 5:
         print("⚠️  Not enough data for Evidently report (need >= 10 samples)")
         return {}
     
     try:
-        # Prépare les données pour Evidently
-        # Reference = prédictions du modèle
-        # Current = annotations utilisateurs
-        
-        reference_data = pd.DataFrame({
+        ws = CloudWorkspace(token=EVIDENTLY_API_KEY, url="https://app.evidently.cloud")
+        project = ws.get_project(PROJECT_ID)
+
+        reference_data = Dataset.from_pandas(pd.DataFrame({
             'boredom': df['predicted_boredom'],
             'confusion': df['predicted_confusion'],
             'engagement': df['predicted_engagement'],
             'frustration': df['predicted_frustration']
-        })
+        }))
         
-        current_data = pd.DataFrame({
+        current_data = Dataset.from_pandas(pd.DataFrame({
             'boredom': df['user_boredom'],
             'confusion': df['user_confusion'],
             'engagement': df['user_engagement'],
             'frustration': df['user_frustration']
-        })
+        }))
         
-        # Crée le rapport Evidently
         report = Report(metrics=[
             DataDriftPreset(),
         ])
         
-        report.run(
+        # ✅ CHANGEMENT 1 : capture le snapshot
+        snapshot = report.run(
             reference_data=reference_data,
             current_data=current_data
         )
         
-        # Convertit en JSON
-        report_dict = report.as_dict()
+        # ✅ CHANGEMENT 2 : add_run sur project avec snapshot
+        ws.add_run(PROJECT_ID, snapshot)
+
+        # ✅ CHANGEMENT 3 : dict() sur snapshot
+        report_dict = snapshot.dict()
         
         print("✅ Evidently report generated")
         

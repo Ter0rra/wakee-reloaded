@@ -37,7 +37,7 @@ from utils.drift_calculator import (
 
 DRIFT_THRESHOLD = 0.15  # Seuil MAE pour déclencher retrain
 LOOKBACK_DAYS = 7  # Nombre de jours d'annotations à analyser
-MIN_SAMPLES = 10  # Minimum d'annotations requises
+MIN_SAMPLES = 5  # Minimum d'annotations requises
 
 default_args = {
     'owner': 'airflow',
